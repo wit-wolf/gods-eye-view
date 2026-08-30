@@ -185,6 +185,12 @@ const CITY_ALIASES = new Map([
   ['washington', 'dc'],
   ['washington dc', 'dc'],
   ['washington d.c.', 'dc'],
+  ['cape town', 'cape-town'],
+  ['kaapstad', 'cape-town'],
+  ['joburg', 'johannesburg'],
+  ['jozi', 'johannesburg'],
+  ['tshwane', 'pretoria'],
+  ['garden route', 'george'],
 ]);
 
 // Basemap stack vocabulary. Switching requires an explicit stack name

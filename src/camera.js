@@ -1,8 +1,9 @@
 import * as Cesium from 'cesium';
+import { CITY_POIS, DEFAULT_HOME_CITY_ID, flyToLandmark } from './locations.js';
 
 /**
  * Camera presets for notable locations.
- * Phase 1 default: fly to Austin, TX on load.
+ * Default home is driven by DEFAULT_HOME_CITY_ID (ZA pack → Cape Town).
  */
 export const CAMERA_PRESETS = {
   austin: {
@@ -29,6 +30,14 @@ export const CAMERA_PRESETS = {
       roll: 0.0,
     },
   },
+  'cape-town': {
+    destination: Cesium.Cartesian3.fromDegrees(18.4107, -33.9625, 1600),
+    orientation: {
+      heading: Cesium.Math.toRadians(0),
+      pitch: Cesium.Math.toRadians(-22),
+      roll: 0.0,
+    },
+  },
 };
 
 /**
@@ -47,12 +56,16 @@ export function flyToPreset(viewer, presetName, duration = 3.0) {
 }
 
 /**
- * Set camera to Austin on load with a cinematic fly-in.
+ * Cinematic first-run fly-in to the fork's default home city (Cape Town via
+ * the ZA city pack). Falls back to Austin if the pack is missing.
  */
-export function flyToAustin(viewer) {
-  // Start from a high altitude, then fly down
+export function flyToDefaultHome(viewer) {
+  const city = CITY_POIS[DEFAULT_HOME_CITY_ID] || CITY_POIS.austin;
+  const poi = city?.pois?.[0];
+  if (!poi) return;
+
   viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(-97.7431, 30.2672, 25000),
+    destination: Cesium.Cartesian3.fromDegrees(poi.lon, poi.lat, 25000),
     orientation: {
       heading: Cesium.Math.toRadians(0),
       pitch: Cesium.Math.toRadians(-90),
@@ -60,17 +73,20 @@ export function flyToAustin(viewer) {
     },
   });
 
-  // Cinematic fly-in after a brief pause
   setTimeout(() => {
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(-97.7431, 30.2672, 600),
-      orientation: {
-        heading: Cesium.Math.toRadians(15),
-        pitch: Cesium.Math.toRadians(-30),
-        roll: 0.0,
-      },
+    flyToLandmark(viewer, poi.lat, poi.lon, {
+      range: poi.alt,
+      pitch: poi.pitch,
+      heading: poi.heading || 0,
+      buildingHeight: poi.buildingHeight || 30,
+      buildingBounds: poi.buildingBounds || null,
+      groundElevation: city.groundElevation || 0,
       duration: 4.0,
-      easingFunction: Cesium.EasingFunction.CUBIC_IN_OUT,
     });
   }, 500);
+}
+
+/** @deprecated Use flyToDefaultHome — kept for older scripts/comments. */
+export function flyToAustin(viewer) {
+  flyToDefaultHome(viewer);
 }
