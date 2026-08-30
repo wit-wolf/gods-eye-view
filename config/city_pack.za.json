@@ -1,0 +1,174 @@
+{
+  "id": "za",
+  "label": "South Africa",
+  "defaultHomeCityId": "cape-town",
+  "cities": {
+    "cape-town": {
+      "name": "Cape Town",
+      "groundElevation": 25,
+      "viewBounds": {
+        "southwest": { "lat": -34.12, "lng": 18.32 },
+        "northeast": { "lat": -33.78, "lng": 18.72 }
+      },
+      "pois": [
+        {
+          "name": "Table Mountain",
+          "lat": -33.9625,
+          "lon": 18.4107,
+          "alt": 1600,
+          "pitch": -22,
+          "heading": 0,
+          "buildingHeight": 80
+        },
+        {
+          "name": "V&A Waterfront",
+          "lat": -33.9030,
+          "lon": 18.4205,
+          "alt": 700,
+          "pitch": -28,
+          "heading": 200,
+          "buildingHeight": 25
+        },
+        {
+          "name": "Parliament of South Africa",
+          "lat": -33.9265,
+          "lon": 18.4194,
+          "alt": 450,
+          "pitch": -25,
+          "heading": 180,
+          "buildingHeight": 30
+        },
+        {
+          "name": "Cape Town International",
+          "lat": -33.9715,
+          "lon": 18.6021,
+          "alt": 2200,
+          "pitch": -35,
+          "heading": 45,
+          "buildingHeight": 20
+        },
+        {
+          "name": "Signal Hill",
+          "lat": -33.9154,
+          "lon": 18.4029,
+          "alt": 900,
+          "pitch": -28,
+          "heading": 120,
+          "buildingHeight": 40
+        }
+      ]
+    },
+    "johannesburg": {
+      "name": "Johannesburg",
+      "groundElevation": 1750,
+      "viewBounds": {
+        "southwest": { "lat": -26.35, "lng": 27.85 },
+        "northeast": { "lat": -25.95, "lng": 28.35 }
+      },
+      "pois": [
+        {
+          "name": "Sandton",
+          "lat": -26.1080,
+          "lon": 28.0547,
+          "alt": 800,
+          "pitch": -25,
+          "heading": 30,
+          "buildingHeight": 90
+        },
+        {
+          "name": "OR Tambo International",
+          "lat": -26.1337,
+          "lon": 28.2420,
+          "alt": 2400,
+          "pitch": -35,
+          "heading": 200,
+          "buildingHeight": 25
+        },
+        {
+          "name": "Constitutional Court / Joburg CBD",
+          "lat": -26.1889,
+          "lon": 28.0433,
+          "alt": 650,
+          "pitch": -28,
+          "heading": 0,
+          "buildingHeight": 35
+        }
+      ]
+    },
+    "durban": {
+      "name": "Durban",
+      "groundElevation": 10,
+      "viewBounds": {
+        "southwest": { "lat": -30.05, "lng": 30.85 },
+        "northeast": { "lat": -29.70, "lng": 31.15 }
+      },
+      "pois": [
+        {
+          "name": "Durban Harbour",
+          "lat": -29.8740,
+          "lon": 31.0260,
+          "alt": 1400,
+          "pitch": -35,
+          "heading": 90,
+          "buildingHeight": 20
+        },
+        {
+          "name": "Moses Mabhida Stadium",
+          "lat": -29.8290,
+          "lon": 31.0303,
+          "alt": 700,
+          "pitch": -25,
+          "heading": 200,
+          "buildingHeight": 55
+        }
+      ]
+    },
+    "pretoria": {
+      "name": "Pretoria / Tshwane",
+      "groundElevation": 1350,
+      "viewBounds": {
+        "southwest": { "lat": -25.90, "lng": 28.05 },
+        "northeast": { "lat": -25.60, "lng": 28.40 }
+      },
+      "pois": [
+        {
+          "name": "Union Buildings",
+          "lat": -25.7403,
+          "lon": 28.2119,
+          "alt": 700,
+          "pitch": -28,
+          "heading": 180,
+          "buildingHeight": 35
+        }
+      ]
+    },
+    "george": {
+      "name": "George / Garden Route",
+      "groundElevation": 220,
+      "viewBounds": {
+        "southwest": { "lat": -34.08, "lng": 22.30 },
+        "northeast": { "lat": -33.90, "lng": 22.55 }
+      },
+      "pois": [
+        {
+          "name": "George Airport",
+          "lat": -34.0056,
+          "lon": 22.3789,
+          "alt": 1600,
+          "pitch": -35,
+          "heading": 45,
+          "buildingHeight": 15
+        },
+        {
+          "name": "George Town Centre",
+          "lat": -33.9636,
+          "lon": 22.4619,
+          "alt": 700,
+          "pitch": -30,
+          "heading": 0,
+          "buildingHeight": 20
+        }
+      ]
+    }
+  }
+}

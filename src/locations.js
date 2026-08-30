@@ -1,9 +1,12 @@
 import * as Cesium from 'cesium';
 import { viewportBias, placesNearViewRecovery } from './annotations/annotationResolver.js';
+import zaCityPack from '../config/city_pack.za.json' with { type: 'json' };
 
 /**
  * Points of Interest per city.
- * Each city has 5 POIs; the first is the default fly-to landmark.
+ * Regional packs (e.g. config/city_pack.za.json) merge in first so fork defaults
+ * surface ahead of the upstream US/Europe/Asia list. The first POI in each city
+ * is the default fly-to landmark.
  *
  * Field reference:
  *   alt     — RANGE (distance from target in meters), NOT absolute altitude
@@ -11,7 +14,7 @@ import { viewportBias, placesNearViewRecovery } from './annotations/annotationRe
  *   pitch   — camera tilt in degrees (negative = looking down)
  *   buildingHeight — estimated height of landmark center above ground (meters)
  */
-export const CITY_POIS = {
+const BASE_CITY_POIS = {
   austin: {
     name: 'Austin',
     groundElevation: 150, // meters above WGS84 ellipsoid
@@ -118,6 +121,50 @@ export const CITY_POIS = {
     ],
   },
 };
+
+/**
+ * Merge JSON city packs into a cities map. Later packs overwrite earlier ones
+ * on the same city id so a fork can replace a landmark set without editing
+ * BASE_CITY_POIS.
+ * @param {...Record<string, object>} packs
+ * @returns {Record<string, object>}
+ */
+function mergeCityPacks(...packs) {
+  const merged = {};
+  for (const pack of packs) {
+    const cities = pack?.cities && typeof pack.cities === 'object' ? pack.cities : pack;
+    if (!cities || typeof cities !== 'object') continue;
+    for (const [cityId, city] of Object.entries(cities)) {
+      if (!city || !Array.isArray(city.pois) || !city.pois.length) continue;
+      merged[cityId] = city;
+    }
+  }
+  return merged;
+}
+
+const ZA_CITY_POIS = mergeCityPacks(zaCityPack);
+
+/**
+ * South Africa pack listed first so the location bar opens on ZA cities.
+ * Upstream cities follow; pack ids always win over BASE on collision.
+ */
+export const CITY_POIS = {
+  ...ZA_CITY_POIS,
+  ...Object.fromEntries(
+    Object.entries(BASE_CITY_POIS).filter(([cityId]) => !ZA_CITY_POIS[cityId]),
+  ),
+};
+
+/**
+ * First-run / reset-home city when no share link is present.
+ * Prefer the active regional pack's defaultHomeCityId when it resolves.
+ */
+export const DEFAULT_HOME_CITY_ID = (
+  zaCityPack?.defaultHomeCityId
+  && CITY_POIS[zaCityPack.defaultHomeCityId]
+)
+  ? zaCityPack.defaultHomeCityId
+  : Object.keys(CITY_POIS)[0];
 
 /**
  * Absolute full-earth camera preset for the zoom_to_globe voice tool. The height
