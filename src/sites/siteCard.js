@@ -100,7 +100,7 @@ export function openSiteCard({ uid, name, properties = {}, onChange = null } = {
   panel.hidden = false;
   panel.innerHTML = `
     <div class="site-card-header">
-      <div class="site-card-kicker">SITES · PROPERTY GENIUS</div>
+      <div class="site-card-kicker">SITES · VOLEE</div>
       <button type="button" class="site-card-close" data-site-close title="Close" aria-label="Close site card">×</button>
     </div>
     <h2 class="site-card-title">${escapeHtml(displayName)}</h2>

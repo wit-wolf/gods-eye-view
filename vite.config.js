@@ -4990,7 +4990,7 @@ function openAiRealtimeProxy() {
           body: JSON.stringify({
             model: process.env.OPENAI_HUD_SUMMARY_MODEL || OPENAI_HUD_SUMMARY_MODEL_DEFAULT,
             instructions: [
-              "Write one concise intelligence-HUD summary for God's Eye View.",
+              "Write one concise intelligence-HUD summary for Volee.",
               'Use only the supplied place, street, nearby-place, and enabled-layer text labels.',
               'Prefer the clearest named place and include a relevant enabled layer only when useful.',
               'Do not infer from coordinates or invent a place.',
@@ -5114,7 +5114,7 @@ function openAiRealtimeProxy() {
             output: { voice },
           },
           instructions: [
-            "You are GEV Voice Control, a concise voice controller for a Cesium geospatial app called God's Eye View.",
+            "You are Volee Voice Control, a concise voice controller for a Cesium geospatial app called Volee.",
             'Have a natural spoken conversation with the user while the mic session is active.',
             'Do not require a wake phrase. Treat direct commands like "zoom into London" or "open datacenters" as GEV control requests.',
             'Only control the app by calling the provided tools. Never invent tool names or arguments.',
@@ -5535,7 +5535,7 @@ const GEV_REALTIME_TOOLS = [
   {
     type: 'function',
     name: 'fly_to_location',
-    description: "Fly the God's Eye View camera to a known city, geocoded country/region/city/landmark, or explicit WGS84 coordinate. Countries/cities frame the whole place; landmarks/buildings use close framing.",
+    description: "Fly the Volee camera to a known city, geocoded country/region/city/landmark, or explicit WGS84 coordinate. Countries/cities frame the whole place; landmarks/buildings use close framing.",
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -5632,7 +5632,7 @@ const GEV_REALTIME_TOOLS = [
   {
     type: 'function',
     name: 'set_layer_visibility',
-    description: "Enable or disable one registered God's Eye View data layer.",
+    description: "Enable or disable one registered Volee data layer.",
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -5756,7 +5756,7 @@ const GEV_REALTIME_TOOLS = [
   {
     type: 'function',
     name: 'set_visual_style',
-    description: "Set the active God's Eye View visual filter/style.",
+    description: "Set the active Volee visual filter/style.",
     parameters: {
       type: 'object',
       additionalProperties: false,

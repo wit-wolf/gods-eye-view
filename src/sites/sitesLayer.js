@@ -1,12 +1,9 @@
 /**
  * Property Genius Sites layer — KMZ/KML import on the Cesium photoreal globe.
  *
- * Renders imported (and bundled demo) features as terrain-clamped points /
- * polygons. Click opens a GEV-style site card (status + scores + KML attrs).
- * Metadata persists in localStorage; GeoJSON in IndexedDB. No Azure SQL.
- *
- * Ambient stems from localGeojson.js are intentionally NOT used here: the
- * November demo alone is ~10k features, so we keep entity cost low.
+ * Large imports must not freeze Chrome: KMZ parse runs in a worker, Cesium
+ * entities are created in idle batches, DEMO first-paint uses a Cape Town
+ * preview, and enabling Sites alone does not dump ~10k features.
  */
 import * as Cesium from 'cesium';
 import { governorRequestRender } from '../renderGovernor.js';
@@ -20,11 +17,11 @@ import {
   extractKMLFromKMZ,
   getBounds,
   getGeometryTypes,
-  importAndProcessFile,
   parseGzippedGeoJSON,
   parseKML,
   processGeoJSON,
 } from './importKml.js';
+import { importFileInWorker } from './importWorkerBridge.js';
 import { normalizeSiteStatus } from './scoring.js';
 import { closeSiteCard, openSiteCard } from './siteCard.js';
 import {
@@ -32,6 +29,7 @@ import {
   DEMO_KMZ_URL,
   DEMO_LAYER_ID,
   DEMO_LAYER_NAME,
+  DEMO_PREVIEW_GEOJSON_URL,
   createLayerCatalogEntry,
   deleteLayerGeoJSON,
   ensureSiteMetadata,
@@ -42,8 +40,18 @@ import {
   saveLayerCatalog,
   saveLayerGeoJSON,
 } from './siteStore.js';
+import {
+  isAbortError,
+  mapInBatches,
+  sampleFeaturesForPreview,
+  yieldToMain,
+} from './yield.js';
 
 export const SITES_LAYER_ID = 'sites';
+/** First DEMO paint size before streaming the remainder. */
+export const SITES_FIRST_PAINT_CAP = 500;
+/** Entities created per idle batch after first paint. */
+export const SITES_PAINT_BATCH = 100;
 
 const STATUS_COLORS = {
   lead: '#f0c14a',
@@ -60,25 +68,32 @@ let _clickHandler = null;
 let _dropCleanup = null;
 let _fileInput = null;
 let _count = 0;
+let _totalPlanned = 0;
 let _lastUpdate = null;
 let _error = null;
 let _loading = false;
 let _status = 'idle';
+let _progressLabel = '';
 let _rowControlsListener = null;
-let _pendingAction = null; // 'import' | 'demo' | 'clear' | 'fly'
+let _pendingAction = null;
+/** @type {AbortController|null} */
+let _loadAbort = null;
 /** @type {Map<string, object>} */
 let _featureByUid = new Map();
 /** @type {object[]} */
 let _catalog = [];
+/** Generation token so a superseded rebuild cannot finish painting. */
+let _paintGeneration = 0;
 
 function notifyRowControls() {
   try { _rowControlsListener?.(); } catch { /* panel refresh is best-effort */ }
 }
 
-function setBusy(status, error = null) {
+function setBusy(status, error = null, progressLabel = '') {
   _status = status;
-  _loading = status === 'loading' || status === 'converting';
+  _loading = status === 'loading' || status === 'converting' || status === 'painting';
   _error = error;
+  _progressLabel = progressLabel;
   notifyRowControls();
 }
 
@@ -98,6 +113,21 @@ function makeLayerId(filename) {
   return `sites-${base}-${Date.now().toString(36)}`;
 }
 
+function beginLoad() {
+  if (_loadAbort) _loadAbort.abort();
+  _loadAbort = new AbortController();
+  _paintGeneration += 1;
+  return { signal: _loadAbort.signal, generation: _paintGeneration };
+}
+
+function cancelLoad() {
+  if (_loadAbort) {
+    _loadAbort.abort();
+    _loadAbort = null;
+  }
+  _paintGeneration += 1;
+}
+
 async function ensureDemoCatalogEntry() {
   _catalog = loadLayerCatalog();
   if (_catalog.some((entry) => entry.id === DEMO_LAYER_ID)) return;
@@ -113,60 +143,60 @@ async function ensureDemoCatalogEntry() {
   saveLayerCatalog(_catalog);
 }
 
-async function loadDemoGeoJSON() {
-  // Prefer the pre-gzipped Point/Polygon subset for fast first paint.
+async function loadPreviewGeoJSON() {
+  const response = await fetch(DEMO_PREVIEW_GEOJSON_URL);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const raw = await response.json();
+  return processGeoJSON(raw, DEMO_LAYER_ID);
+}
+
+async function loadFullDemoGeoJSON(signal, onProgress) {
+  onProgress?.('Fetching demo…');
   try {
-    const response = await fetch(DEMO_GEOJSON_GZ_URL);
+    const response = await fetch(DEMO_GEOJSON_GZ_URL, { signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const buffer = await response.arrayBuffer();
+    if (signal?.aborted) throw abortErr();
+    onProgress?.('Decompressing…');
+    await yieldToMain({ signal });
     const raw = await parseGzippedGeoJSON(buffer);
+    await yieldToMain({ signal });
     return processGeoJSON(raw, DEMO_LAYER_ID);
   } catch (gzError) {
+    if (isAbortError(gzError)) throw gzError;
     console.warn('[Sites] gzipped demo unavailable, falling back to KMZ:', gzError);
-    const response = await fetch(DEMO_KMZ_URL);
+    onProgress?.('Parsing KMZ…');
+    const response = await fetch(DEMO_KMZ_URL, { signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const buffer = await response.arrayBuffer();
     const kml = await extractKMLFromKMZ(buffer);
+    await yieldToMain({ signal });
     const raw = parseKML(kml);
+    await yieldToMain({ signal });
     return processGeoJSON(raw, DEMO_LAYER_ID);
   }
 }
 
-async function collectVisibleFeatureCollections() {
-  _catalog = loadLayerCatalog();
-  if (_catalog.length === 0) {
-    await ensureDemoCatalogEntry();
-  }
-
-  const collections = [];
-  for (const entry of _catalog) {
-    if (entry.visible === false) continue;
-    let geojson = await loadLayerGeoJSON(entry.id).catch(() => null);
-    if (!geojson && entry.id === DEMO_LAYER_ID) {
-      geojson = await loadDemoGeoJSON();
-      try { await saveLayerGeoJSON(entry.id, geojson); } catch { /* cache optional */ }
-      entry.feature_count = geojson.features.length;
-      entry.geometry_types = getGeometryTypes(geojson);
-      saveLayerCatalog(_catalog);
-    }
-    if (geojson?.features?.length) collections.push(geojson);
-  }
-  return collections;
+function abortErr() {
+  const error = new Error('Sites import cancelled');
+  error.name = 'AbortError';
+  return error;
 }
 
-function mergeCollections(collections) {
-  const features = [];
-  for (const collection of collections) {
-    for (const feature of collection.features || []) features.push(feature);
+function unwrapProperties(value) {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(unwrapProperties);
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) {
+    out[key] = entry && typeof entry.getValue === 'function'
+      ? unwrapProperties(entry.getValue(Cesium.JulianDate.now()))
+      : unwrapProperties(entry);
   }
-  return { type: 'FeatureCollection', features };
+  return out;
 }
 
 function styleEntity(entity, uid) {
   const color = Cesium.Color.fromCssColorString(accentForUid(uid));
-  if (entity.billboard) {
-    entity.billboard = undefined;
-  }
   if (entity.polygon) {
     entity.polygon.material = color.withAlpha(0.28);
     entity.polygon.outline = true;
@@ -178,7 +208,6 @@ function styleEntity(entity, uid) {
     entity.polyline.width = 2;
     entity.polyline.clampToGround = true;
   }
-  // Prefer a compact point pick target for all geometries that have a position.
   entity.point = new Cesium.PointGraphics({
     pixelSize: 10,
     color,
@@ -207,103 +236,210 @@ function featurePosition(entity) {
   return null;
 }
 
-function unwrapProperties(value) {
-  if (!value || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map(unwrapProperties);
-  const out = {};
-  for (const [key, entry] of Object.entries(value)) {
-    out[key] = entry && typeof entry.getValue === 'function'
-      ? unwrapProperties(entry.getValue(Cesium.JulianDate.now()))
-      : unwrapProperties(entry);
-  }
-  return out;
-}
-
-function propertyObject(entity) {
-  const source = entity?.properties;
-  const raw = typeof source?.getValue === 'function'
-    ? source.getValue(Cesium.JulianDate.now())
-    : source || {};
-  return unwrapProperties(raw) || {};
-}
-
-async function rebuildDataSource() {
-  if (!_viewer || _destroyed) return;
-  setBusy('loading');
-
+function clearDataSource() {
   removeEntityContextsForLayer(SITES_LAYER_ID);
   _featureByUid = new Map();
-
-  if (_dataSource) {
+  _count = 0;
+  _totalPlanned = 0;
+  if (_dataSource && _viewer) {
     try { _viewer.dataSources.remove(_dataSource, true); } catch { /* gone */ }
-    _dataSource = null;
+  }
+  _dataSource = null;
+}
+
+function ensureDataSource() {
+  if (_dataSource) return _dataSource;
+  const ds = new Cesium.CustomDataSource('Sites');
+  ds.clustering.enabled = true;
+  ds.clustering.pixelRange = 18;
+  ds.clustering.minimumClusterSize = 4;
+  ds.show = _enabled;
+  _viewer.dataSources.add(ds);
+  _dataSource = ds;
+  return ds;
+}
+
+function addFeatureEntity(feature, index) {
+  const props = feature.properties || {};
+  const uid = props._uid || `sites:orphan:${index}`;
+  const name = props._name || props.name || props.Name || `Site ${index + 1}`;
+  const geom = feature.geometry;
+  if (!geom) return null;
+
+  ensureSiteMetadata(uid, name);
+  const entityOptions = {
+    id: uid,
+    properties: props,
+  };
+
+  if (geom.type === 'Point' && Array.isArray(geom.coordinates)) {
+    const [lon, lat, height = 0] = geom.coordinates;
+    entityOptions.position = Cesium.Cartesian3.fromDegrees(lon, lat, height || 0);
+  } else if (geom.type === 'Polygon' && geom.coordinates?.[0]) {
+    const ring = geom.coordinates[0]
+      .filter((c) => Array.isArray(c) && c.length >= 2)
+      .map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat));
+    if (ring.length >= 3) {
+      entityOptions.polygon = {
+        hierarchy: new Cesium.PolygonHierarchy(ring),
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      };
+      entityOptions.position = Cesium.BoundingSphere.fromPoints(ring).center;
+    }
+  } else if (geom.type === 'LineString' && geom.coordinates) {
+    const positions = geom.coordinates
+      .filter((c) => Array.isArray(c) && c.length >= 2)
+      .map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat));
+    if (positions.length >= 2) {
+      entityOptions.polyline = {
+        positions,
+        clampToGround: true,
+        width: 2,
+      };
+      entityOptions.position = Cesium.BoundingSphere.fromPoints(positions).center;
+    }
+  } else {
+    // Skip GeometryCollection / Multi* for progressive path simplicity;
+    // preview + demo gz are Point/Polygon only.
+    return null;
   }
 
-  try {
-    const collections = await collectVisibleFeatureCollections();
-    const merged = mergeCollections(collections);
-    _count = merged.features.length;
+  if (!entityOptions.position && !entityOptions.polygon && !entityOptions.polyline) {
+    return null;
+  }
 
-    if (_count === 0) {
-      _lastUpdate = Date.now();
-      setBusy('empty');
-      return;
-    }
+  const entity = _dataSource.entities.add(entityOptions);
+  entity.__sitesLayerId = SITES_LAYER_ID;
+  entity.__siteUid = uid;
+  styleEntity(entity, uid);
 
-    const loaded = await Cesium.GeoJsonDataSource.load(merged, {
-      clampToGround: true,
-      markerSize: 8,
-      strokeWidth: 2,
-    });
-    loaded.name = 'Sites';
-    loaded.clustering.enabled = _count > 400;
-    loaded.clustering.pixelRange = 18;
-    loaded.clustering.minimumClusterSize = 4;
+  const pos = featurePosition(entity);
+  let latitude = null;
+  let longitude = null;
+  if (pos) {
+    const carto = Cesium.Cartographic.fromCartesian(pos);
+    latitude = Number(Cesium.Math.toDegrees(carto.latitude).toFixed(6));
+    longitude = Number(Cesium.Math.toDegrees(carto.longitude).toFixed(6));
+  }
 
-    await _viewer.dataSources.add(loaded);
-    _dataSource = loaded;
-    _dataSource.show = _enabled;
+  _featureByUid.set(uid, { entity, props, name });
+  registerEntityContext(entity, {
+    id: `${SITES_LAYER_ID}:${uid}`,
+    layerId: SITES_LAYER_ID,
+    layerName: 'Sites',
+    source: 'Property Genius',
+    dataSource: _dataSource,
+    label: name,
+    properties: props,
+    latitude,
+    longitude,
+  });
+  return entity;
+}
 
-    const entities = loaded.entities.values;
-    for (let i = 0; i < entities.length; i++) {
-      const entity = entities[i];
-      const props = propertyObject(entity);
-      const uid = props._uid || `sites:orphan:${i}`;
-      const name = props._name || props.name || props.Name || `Site ${i + 1}`;
-      ensureSiteMetadata(uid, name);
-      entity.__sitesLayerId = SITES_LAYER_ID;
-      entity.__siteUid = uid;
-      styleEntity(entity, uid);
+/**
+ * Paint features in batches. First `firstPaint` entities land ASAP; the rest
+ * stream during idle time.
+ * @param {object[]} features
+ * @param {object} options
+ */
+async function paintFeatures(features, {
+  signal,
+  generation,
+  firstPaint = SITES_FIRST_PAINT_CAP,
+  batchSize = SITES_PAINT_BATCH,
+} = {}) {
+  if (!_viewer || _destroyed) return;
+  const list = Array.isArray(features) ? features : [];
+  _totalPlanned = list.length;
+  ensureDataSource();
+  _dataSource.show = _enabled;
 
-      const pos = featurePosition(entity);
-      let latitude = null;
-      let longitude = null;
-      if (pos) {
-        const carto = Cesium.Cartographic.fromCartesian(pos);
-        latitude = Number(Cesium.Math.toDegrees(carto.latitude).toFixed(6));
-        longitude = Number(Cesium.Math.toDegrees(carto.longitude).toFixed(6));
+  const immediate = list.slice(0, firstPaint);
+  const remainder = list.slice(firstPaint);
+
+  setBusy('painting', null, `Painting ${Math.min(immediate.length, list.length)}/${list.length}…`);
+  await mapInBatches(immediate, {
+    batchSize,
+    signal,
+    work: async (batch, startIndex) => {
+      if (generation !== _paintGeneration) throw abortErr();
+      for (let i = 0; i < batch.length; i++) {
+        addFeatureEntity(batch[i], startIndex + i);
       }
+      _count = _featureByUid.size;
+    },
+    onProgress: ({ done }) => {
+      if (generation !== _paintGeneration) return;
+      _count = _featureByUid.size;
+      setBusy('painting', null, `Painting ${done}/${list.length}…`);
+      governorRequestRender('sites:first-paint');
+    },
+  });
+  _count = _featureByUid.size;
+  _lastUpdate = Date.now();
+  notifyRowControls();
+  governorRequestRender('sites:first-paint');
+  await yieldToMain({ signal });
 
-      _featureByUid.set(uid, { entity, props, name });
-      registerEntityContext(entity, {
-        id: `${SITES_LAYER_ID}:${uid}`,
-        layerId: SITES_LAYER_ID,
-        layerName: 'Sites',
-        source: 'Property Genius',
-        dataSource: loaded,
-        label: name,
-        properties: props,
-        latitude,
-        longitude,
-      });
-    }
+  if (!remainder.length) {
+    setBusy(_count ? 'nominal' : 'empty');
+    return;
+  }
 
-    _lastUpdate = Date.now();
-    setBusy('nominal');
-    governorRequestRender('sites:rebuild');
-  } catch (error) {
-    console.error('[Sites] rebuild failed:', error);
+  await mapInBatches(remainder, {
+    batchSize,
+    signal,
+    onProgress: ({ done, total }) => {
+      if (generation !== _paintGeneration) return;
+      _count = _featureByUid.size;
+      setBusy(
+        'painting',
+        null,
+        `Painting ${Math.min(firstPaint + done, list.length)}/${list.length}…`,
+      );
+      governorRequestRender('sites:paint-batch');
+    },
+    work: async (batch, startIndex) => {
+      if (generation !== _paintGeneration) throw abortErr();
+      for (let i = 0; i < batch.length; i++) {
+        addFeatureEntity(batch[i], firstPaint + startIndex + i);
+      }
+      _count = _featureByUid.size;
+    },
+  });
+
+  if (generation !== _paintGeneration) return;
+  _count = _featureByUid.size;
+  _lastUpdate = Date.now();
+  setBusy(_count ? 'nominal' : 'empty');
+  governorRequestRender('sites:paint-done');
+}
+
+async function loadCachedOrPromptEmpty() {
+  // Enabling Sites alone must stay instant. Only paint layers already cached
+  // in IndexedDB from a prior DEMO/IMPORT — never auto-fetch the November dump.
+  _catalog = loadLayerCatalog();
+  const collections = [];
+  for (const entry of _catalog) {
+    if (entry.visible === false) continue;
+    const geojson = await loadLayerGeoJSON(entry.id).catch(() => null);
+    if (geojson?.features?.length) collections.push(geojson);
+  }
+  if (!collections.length) {
     _count = 0;
+    _totalPlanned = 0;
+    setBusy('empty', null, 'Click DEMO or IMPORT');
+    return;
+  }
+  const features = collections.flatMap((c) => c.features || []);
+  const { signal, generation } = beginLoad();
+  clearDataSource();
+  try {
+    await paintFeatures(features, { signal, generation });
+  } catch (error) {
+    if (isAbortError(error)) return;
+    console.error('[Sites] cached paint failed:', error);
     setBusy('unavailable', error?.message || 'dataset unavailable');
   }
 }
@@ -312,7 +448,9 @@ function selectSiteEntity(entity) {
   if (!entity?.__siteUid) return;
   const uid = entity.__siteUid;
   const record = _featureByUid.get(uid);
-  const props = record?.props || propertyObject(entity);
+  const props = record?.props || unwrapProperties(
+    entity.properties?.getValue?.(Cesium.JulianDate.now()) || {},
+  );
   const name = record?.name || props._name || 'Site';
 
   _viewer.selectedEntity = entity;
@@ -399,13 +537,29 @@ function installDropTarget() {
 
 async function importUserFile(file) {
   if (_destroyed) return;
-  setBusy('converting');
+  const { signal, generation } = beginLoad();
+  setBusy('converting', null, `Importing ${file.name}…`);
   try {
     const layerId = makeLayerId(file.name);
-    const geojson = await importAndProcessFile(file, layerId);
+    const buffer = await file.arrayBuffer();
+    if (signal.aborted) throw abortErr();
+    const geojson = await importFileInWorker({
+      buffer,
+      filename: file.name,
+      layerId,
+      signal,
+      onProgress: ({ phase, ratio }) => {
+        setBusy('converting', null, `${phase} ${Math.round((ratio || 0) * 100)}%`);
+      },
+    });
     if (!geojson.features.length) throw new Error('No features found in file');
 
-    await saveLayerGeoJSON(layerId, geojson);
+    // Persist off the critical path after first paint starts.
+    queueMicrotask(() => {
+      void saveLayerGeoJSON(layerId, geojson).catch((err) => {
+        console.warn('[Sites] IndexedDB cache failed:', err);
+      });
+    });
     _catalog = loadLayerCatalog().filter((entry) => entry.id !== layerId);
     _catalog.push(createLayerCatalogEntry({
       id: layerId,
@@ -417,10 +571,27 @@ async function importUserFile(file) {
     }));
     saveLayerCatalog(_catalog);
 
-    if (_enabled) await rebuildDataSource();
-    else setBusy('idle');
-    flyToCurrentFeatures(geojson);
+    if (!_enabled) {
+      setBusy('idle');
+      return;
+    }
+    clearDataSource();
+    const ordered = [];
+    const seen = new Set();
+    for (const feature of sampleFeaturesForPreview(geojson.features, SITES_FIRST_PAINT_CAP)) {
+      ordered.push(feature);
+      seen.add(feature);
+    }
+    for (const feature of geojson.features) {
+      if (!seen.has(feature)) ordered.push(feature);
+    }
+    await paintFeatures(ordered, { signal, generation });
+    flyToCurrentFeatures({ type: 'FeatureCollection', features: ordered.slice(0, SITES_FIRST_PAINT_CAP) });
   } catch (error) {
+    if (isAbortError(error)) {
+      setBusy(_count ? 'nominal' : 'empty', null, 'Cancelled');
+      return;
+    }
     console.error('[Sites] import failed:', error);
     setBusy(_count ? 'degraded' : 'unavailable', error?.message || 'import failed');
   }
@@ -458,16 +629,93 @@ function flyToCurrentFeatures(geojson = null) {
   _viewer.camera.flyTo({ destination: rectangle, duration: 1.6 });
 }
 
+async function runDemoLoad() {
+  const { signal, generation } = beginLoad();
+  setBusy('loading', null, 'Loading Cape Town preview…');
+  try {
+    await ensureDemoCatalogEntry();
+    const preview = await loadPreviewGeoJSON();
+    if (signal.aborted) throw abortErr();
+
+    clearDataSource();
+    await paintFeatures(preview.features, {
+      signal,
+      generation,
+      firstPaint: preview.features.length,
+    });
+    flyToCurrentFeatures(preview);
+
+    // Stream the full gzipped set in the background.
+    setBusy('loading', null, 'Streaming full demo…');
+    const full = await loadFullDemoGeoJSON(signal, (label) => {
+      setBusy('loading', null, label);
+    });
+    if (signal.aborted || generation !== _paintGeneration) throw abortErr();
+
+    queueMicrotask(() => {
+      void saveLayerGeoJSON(DEMO_LAYER_ID, full).catch(() => {});
+    });
+    _catalog = loadLayerCatalog();
+    const demo = _catalog.find((entry) => entry.id === DEMO_LAYER_ID);
+    if (demo) {
+      demo.feature_count = full.features.length;
+      demo.geometry_types = getGeometryTypes(full);
+      demo.visible = true;
+      saveLayerCatalog(_catalog);
+    }
+
+    // Append features not already painted (by uid).
+    const existing = new Set(_featureByUid.keys());
+    const extra = full.features.filter((f) => {
+      const uid = f.properties?._uid;
+      return uid && !existing.has(uid);
+    });
+    if (extra.length) {
+      _totalPlanned = _count + extra.length;
+      setBusy('painting', null, `Painting ${_count}/${_totalPlanned}…`);
+      await mapInBatches(extra, {
+        batchSize: SITES_PAINT_BATCH,
+        signal,
+        work: async (batch) => {
+          if (generation !== _paintGeneration) throw abortErr();
+          for (const feature of batch) addFeatureEntity(feature, _featureByUid.size);
+          _count = _featureByUid.size;
+        },
+        onProgress: () => {
+          if (generation !== _paintGeneration) return;
+          _count = _featureByUid.size;
+          setBusy('painting', null, `Painting ${_count}/${_totalPlanned}…`);
+          governorRequestRender('sites:paint-batch');
+        },
+      });
+    }
+    if (generation !== _paintGeneration) return;
+    _count = _featureByUid.size;
+    _lastUpdate = Date.now();
+    setBusy(_count ? 'nominal' : 'empty');
+    notifyRowControls();
+    governorRequestRender('sites:demo-done');
+  } catch (error) {
+    if (isAbortError(error)) {
+      setBusy(_count ? 'nominal' : 'empty', null, 'Cancelled');
+      return;
+    }
+    console.error('[Sites] demo load failed:', error);
+    setBusy('unavailable', error?.message || 'demo load failed');
+  }
+}
+
 async function clearImportedLayers() {
+  cancelLoad();
   _catalog = loadLayerCatalog();
   for (const entry of _catalog) {
-    if (entry.id === DEMO_LAYER_ID) continue;
     try { await deleteLayerGeoJSON(entry.id); } catch { /* ignore */ }
   }
-  _catalog = _catalog.filter((entry) => entry.id === DEMO_LAYER_ID);
-  if (!_catalog.length) await ensureDemoCatalogEntry();
+  _catalog = [];
   saveLayerCatalog(_catalog);
-  if (_enabled) await rebuildDataSource();
+  clearDataSource();
+  closeSiteCard();
+  setBusy('empty', null, 'Click DEMO or IMPORT');
 }
 
 async function handlePendingAction() {
@@ -479,31 +727,16 @@ async function handlePendingAction() {
     return;
   }
   if (action === 'demo') {
-    setBusy('loading');
-    try {
-      await deleteLayerGeoJSON(DEMO_LAYER_ID).catch(() => {});
-      await ensureDemoCatalogEntry();
-      const geojson = await loadDemoGeoJSON();
-      await saveLayerGeoJSON(DEMO_LAYER_ID, geojson);
-      _catalog = loadLayerCatalog();
-      const demo = _catalog.find((entry) => entry.id === DEMO_LAYER_ID);
-      if (demo) {
-        demo.feature_count = geojson.features.length;
-        demo.geometry_types = getGeometryTypes(geojson);
-        demo.visible = true;
-        saveLayerCatalog(_catalog);
-      }
-      if (_enabled) {
-        await rebuildDataSource();
-        flyToCurrentFeatures(geojson);
-      }
-    } catch (error) {
-      setBusy('unavailable', error?.message || 'demo load failed');
-    }
+    await runDemoLoad();
     return;
   }
   if (action === 'clear') {
     await clearImportedLayers();
+    return;
+  }
+  if (action === 'cancel') {
+    cancelLoad();
+    setBusy(_count ? 'nominal' : 'empty', null, 'Cancelled');
     return;
   }
   if (action === 'fly') {
@@ -524,66 +757,80 @@ const sitesLayer = {
     _catalog = loadLayerCatalog();
   },
 
-  async update() {
-    // Static layer — rebuild is driven by import / enable.
-  },
+  async update() {},
 
   getStats() {
     const settings = loadSiteSettings();
     return {
       count: _count,
+      totalPlanned: _totalPlanned,
       lastUpdate: _lastUpdate,
       error: _error,
       loading: _loading,
       status: _status,
-      source: 'Property Genius · local',
+      source: _progressLabel
+        ? `Property Genius · ${_progressLabel}`
+        : 'Property Genius · local',
       scoringWeights: settings.scoring_weights,
     };
   },
 
   getRowControls() {
     const busy = _loading;
+    const chips = [
+      {
+        id: 'sites-import',
+        label: 'IMPORT',
+        title: 'Import KMZ / KML / GeoJSON (background parse)',
+        active: false,
+        disabled: false,
+        params: { sitesAction: 'import' },
+      },
+      {
+        id: 'sites-demo',
+        label: busy && _status !== 'idle' ? 'LOADING' : 'DEMO',
+        title: 'Load November pins — Cape Town preview first, then stream the rest',
+        active: false,
+        disabled: busy,
+        busy,
+        state: busy ? 'loading' : 'idle',
+        params: { sitesAction: 'demo' },
+      },
+      {
+        id: 'sites-fly',
+        label: 'FLY',
+        title: 'Fly to imported sites',
+        active: false,
+        disabled: busy || _count === 0,
+        params: { sitesAction: 'fly' },
+      },
+      {
+        id: 'sites-clear',
+        label: 'RESET',
+        title: 'Clear sites from the globe and local cache',
+        active: false,
+        disabled: false,
+        params: { sitesAction: 'clear' },
+      },
+    ];
+    if (busy) {
+      chips.splice(1, 0, {
+        id: 'sites-cancel',
+        label: 'CANCEL',
+        title: 'Cancel the current import / demo load',
+        active: false,
+        disabled: false,
+        params: { sitesAction: 'cancel' },
+      });
+    }
     return {
-      chips: [
-        {
-          id: 'sites-import',
-          label: 'IMPORT',
-          title: 'Import KMZ / KML / GeoJSON',
-          active: false,
-          disabled: busy,
-          params: { sitesAction: 'import' },
-        },
-        {
-          id: 'sites-demo',
-          label: 'DEMO',
-          title: 'Load November Google Earth Pins demo',
-          active: false,
-          disabled: busy,
-          params: { sitesAction: 'demo' },
-        },
-        {
-          id: 'sites-fly',
-          label: 'FLY',
-          title: 'Fly to imported sites',
-          active: false,
-          disabled: busy || _count === 0,
-          params: { sitesAction: 'fly' },
-        },
-        {
-          id: 'sites-clear',
-          label: 'RESET',
-          title: 'Clear user imports (keeps demo catalog entry)',
-          active: false,
-          disabled: busy,
-          params: { sitesAction: 'clear' },
-        },
-      ],
+      chips,
       legend: [
-        { color: STATUS_COLORS.lead, label: 'Lead', count: null, blurb: 'Lead' },
-        { color: STATUS_COLORS.screening, label: 'Screening', count: null },
-        { color: STATUS_COLORS.shortlisted, label: 'Shortlisted', count: null },
-        { color: STATUS_COLORS.rejected, label: 'Rejected', count: null },
-      ].map((item) => ({ ...item, count: item.count ?? '' })),
+        { color: STATUS_COLORS.lead, label: 'Lead', count: '' },
+        { color: STATUS_COLORS.screening, label: 'Screening', count: '' },
+        { color: STATUS_COLORS.shortlisted, label: 'Shortlisted', count: '' },
+        { color: STATUS_COLORS.rejected, label: 'Rejected', count: '' },
+      ],
     };
   },
 
@@ -594,7 +841,6 @@ const sitesLayer = {
   setParams(next = {}) {
     if (next.sitesAction) {
       _pendingAction = next.sitesAction;
-      // Fire async without blocking the params latch.
       queueMicrotask(() => { void handlePendingAction(); });
     }
     return true;
@@ -613,17 +859,16 @@ const sitesLayer = {
     ensureFileInput();
     if (_dataSource) {
       _dataSource.show = true;
-      setBusy('nominal');
+      setBusy(_count ? 'nominal' : 'empty', null, _count ? '' : 'Click DEMO or IMPORT');
     } else {
-      await rebuildDataSource();
-      // First enable with the demo: frame Cape Town / SA pins.
-      if (_count > 0) flyToCurrentFeatures();
+      await loadCachedOrPromptEmpty();
     }
     governorRequestRender('sites:enable');
   },
 
   disable() {
     _enabled = false;
+    cancelLoad();
     if (_dataSource) _dataSource.show = false;
     clearSelectedEntityContextForLayer(SITES_LAYER_ID);
     closeSiteCard();
@@ -646,13 +891,10 @@ const sitesLayer = {
       _fileInput.remove();
       _fileInput = null;
     }
+    clearDataSource();
     if (_dataSource && (viewer || _viewer)) {
       try { (viewer || _viewer).dataSources.remove(_dataSource, true); } catch { /* ignore */ }
     }
-    removeEntityContextsForLayer(SITES_LAYER_ID);
-    _dataSource = null;
-    _featureByUid = new Map();
-    _count = 0;
     _viewer = null;
   },
 };
@@ -661,6 +903,7 @@ export default sitesLayer;
 
 /** Test helpers */
 export function _resetSitesLayerForTest() {
+  cancelLoad();
   _viewer = null;
   _enabled = false;
   _destroyed = false;
@@ -669,12 +912,15 @@ export function _resetSitesLayerForTest() {
   _dropCleanup = null;
   _fileInput = null;
   _count = 0;
+  _totalPlanned = 0;
   _lastUpdate = null;
   _error = null;
   _loading = false;
   _status = 'idle';
+  _progressLabel = '';
   _rowControlsListener = null;
   _pendingAction = null;
   _featureByUid = new Map();
   _catalog = [];
+  _paintGeneration = 0;
 }

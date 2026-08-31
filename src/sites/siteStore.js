@@ -21,6 +21,7 @@ export const DEMO_LAYER_ID = 'demo-november-pins';
 export const DEMO_LAYER_NAME = 'November Google Earth Pins';
 export const DEMO_KMZ_URL = '/sites/November_Google_Earth_Pins.kmz';
 export const DEMO_GEOJSON_GZ_URL = '/sites/november_pins.geojson.gz';
+export const DEMO_PREVIEW_GEOJSON_URL = '/sites/november_pins.preview.geojson';
 
 function nowIso() {
   return new Date().toISOString();

@@ -13,6 +13,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   The MapLibre Property Genius app is no longer required to view those pins.
   Zoning UI, retail competitor scrapers, and Azure persistence remain deferred.
 
+### Changed
+
+- Product chrome on this fork is branded **Volee** (window title, header,
+  first-run / Mission Control, loading screen, README). The GitHub repository
+  name stays `wit-wolf/gods-eye-view`. Sites/KMZ import is progressive and
+  cancellable so large demos no longer freeze the tab.
+
 ## [Unreleased] — 2026-08-24
 
 ### Added

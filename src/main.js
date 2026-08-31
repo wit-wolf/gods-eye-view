@@ -64,7 +64,7 @@ function describeError(error) {
 }
 
 /**
- * GOD'S EYE VIEW — Main Entry Point
+ * VOLEE — Main Entry Point (fork of God's Eye View)
  * Initializes CesiumJS with Google Photorealistic 3D Tiles,
  * style system, intelligence HUD, location presets, and share links.
  */
@@ -331,7 +331,7 @@ async function init() {
     window.__godsEyeView.voiceCommands = initGevVoiceCommands({ viewer, styleManager, dataManager, sceneDirector, annotations });
 
   } catch (error) {
-    console.error("God's Eye View initialization failed:", error);
+    console.error('Volee initialization failed:', error);
     loaderStatus.textContent = `Error: ${describeError(error)}`;
     loaderStatus.style.color = '#ff4444';
   }

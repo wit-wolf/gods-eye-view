@@ -1,10 +1,10 @@
 <div align="center">
 
-# 🌐 God's Eye View
+# 🌐 Volee
 
 ### A spy-satellite simulator in your browser — then you realize the sources are public and the data is real.
 
-Photorealistic 3D globe. Live aircraft, ships, satellites, earthquakes, traffic, and public cameras, with clearly labeled modeled views where a live feed is unavailable. Hands-free voice control powered by a realtime AI agent.
+**Volee** is this fork’s product name for the live photoreal globe. The repository remains [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (*God's Eye View*). Live aircraft, ships, satellites, earthquakes, traffic, and public cameras, with clearly labeled modeled views where a live feed is unavailable. Hands-free voice control powered by a realtime AI agent. Property Genius site screening is absorbed as the **Sites** layer.
 
 *No place left behind.*
 
@@ -14,7 +14,7 @@ Photorealistic 3D globe. Live aircraft, ships, satellites, earthquakes, traffic,
   <img src="docs/media/youtube-popular-videos.png" alt="The God's Eye View video series on YouTube" width="100%">
 </a>
 
-▶️ **From the project behind the viral God's Eye View series** *(formerly WorldView)* — [5M+ on YouTube](https://youtube.com/playlist?list=PL6qSg2I-7_koPbDnSMo0QeeHX_RknA2uv&si=nBGYMoHWQw41v93Q)
+▶️ **Built on the project behind the viral God's Eye View series** *(formerly WorldView)* — [5M+ on YouTube](https://youtube.com/playlist?list=PL6qSg2I-7_koPbDnSMo0QeeHX_RknA2uv&si=nBGYMoHWQw41v93Q)
 
 </div>
 
@@ -30,9 +30,9 @@ Photorealistic 3D globe. Live aircraft, ships, satellites, earthquakes, traffic,
 
 ## 🌍 Why This Exists
 
-**You asked, so it's happening.** God's Eye View is open source. Track the world live. Talk to it. Break it. Extend it.
+**You asked, so it's happening.** Volee runs on the open God's Eye View foundation. Track the world live. Talk to it. Break it. Extend it.
 
-Most open-source intelligence is a pile of browser tabs. The signals are abundant, but the *interface* is the bottleneck. God's Eye View turns those signals into a **place**: the world is already broadcasting — flight transponders, ship beacons, orbital elements, seismographs, public cameras — and this makes it visible on a photorealistic 3D Earth in real time. No classified clearance required; it's public signal all the way down, and the interface runs in your browser, under your control.
+Most open-source intelligence is a pile of browser tabs. The signals are abundant, but the *interface* is the bottleneck. Volee turns those signals into a **place**: the world is already broadcasting — flight transponders, ship beacons, orbital elements, seismographs, public cameras — and this makes it visible on a photorealistic 3D Earth in real time. No classified clearance required; it's public signal all the way down, and the interface runs in your browser, under your control.
 
 > Half the magic is that it looks like a forbidden cockpit. The other half is that every line of code is inspectable.
 
@@ -69,7 +69,7 @@ The live layers are grounded in public feeds: the airliner crossing your screen 
 
 Requires Node.js 24.14.x or 26.x (enforced by `package.json`).
 
-**This fork** ([wit-wolf/gods-eye-view](https://github.com/wit-wolf/gods-eye-view)) adds a South Africa city pack (`config/city_pack.za.json`), defaults first-run fly-to to **Cape Town**, and **absorbs Property Genius** as the **Sites** data layer on the Cesium photoreal globe. The separate MapLibre Property Genius app is not required to view those pins.
+**This product is Volee** on fork [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view): South Africa city pack (`config/city_pack.za.json`), first-run fly-to **Cape Town**, and **Property Genius** absorbed as the **Sites** data layer. The MapLibre Property Genius app is not required to view those pins. Upstream God's Eye View cities remain available in the location bar.
 
 1. Copy `.env.example` → `.env` and set `GOOGLE_MAPS_API_KEY`.
 2. Install and run:
@@ -144,7 +144,7 @@ No account, no signup. The first-run card will offer to stage a mission for you 
 
 > Voice needs an **OpenAI key**. Without one the entire app still runs — the mic button just reports voice is unavailable. The same key drives the **AI HUD summary**: a terse, five-word intelligence-style readout of the current view that regenerates as you move.
 
-Click **GEV MIC**, grant the microphone, and just talk. This is more than a voice-controlled remote:
+Click **MIC**, grant the microphone, and just talk. This is more than a voice-controlled remote:
 
 - **🧠 It knows what it's looking at.** The agent pulls live scene context before answering — including coordinates, street names, active layers, and view scale. Ask *"what city is this?"* mid-flight and it knows.
 - **🎯 Entity Q&A.** Click any plane, ship, or datacenter and ask *"what's this?"* It answers using the object's live telemetry.
@@ -201,16 +201,16 @@ Thirteen live layers. **Ten of them need nothing at all** — no key, no account
 
 **Also on the globe:** neighborhood overlays · an optional cockpit WX cloud effect. **Bundled static infrastructure:** Datacenters (4,351), Dams (704), and Submarine Cables (712).
 
-### Sites (Property Genius → GEV)
+### Sites (Property Genius → Volee)
 
-Property Genius was a local-first SA retail site-screening prototype (MapLibre + OSM). Its workflow now lives inside this fork as the **Sites** layer — not a second app:
+Property Genius was a local-first SA retail site-screening prototype (MapLibre + OSM). Its workflow now lives inside Volee as the **Sites** layer — not a second app:
 
 | Capability | Status in this fork |
 |---|---|
-| KMZ / KML / GeoJSON import (JSZip + `@tmcw/togeojson`) | **Ported** — Data Layers → **Sites** → **IMPORT**, or drop a file onto the page while Sites is on |
+| KMZ / KML / GeoJSON import (JSZip + `@tmcw/togeojson`) | **Ported** — Data Layers → **Sites** → **IMPORT**, or drop a file onto the page while Sites is on. Parse runs in a worker; Cesium entities stream in idle batches (cancellable). |
 | Cesium photoreal rendering (points + polygons, terrain-clamped) | **Ported** — replaces the MapLibre flat map / Google Earth workflow |
 | Clickable site card (name, Lead/Screening/Shortlisted/Rejected, notes, weighted scores, original KML attrs) | **Ported** — metadata in `localStorage`; imported GeoJSON in IndexedDB |
-| November Google Earth Pins demo | **Bundled** — `public/sites/November_Google_Earth_Pins.kmz` plus a gzipped Point/Polygon subset for fast first paint. Enable **Sites**, then **DEMO** (or first enable auto-loads the demo catalog) |
+| November Google Earth Pins demo | **Bundled** — enable **Sites**, then click **DEMO**. First paint is a Cape Town preview; the full gzipped set streams in afterward. Raw KMZ remains at `public/sites/November_Google_Earth_Pins.kmz` for import testing. |
 | Zoning GeoJSON overlay + intersection | **Deferred** — SA has no national zoning API; leave for a later PR |
 | SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** — stub only (`src/sites/competitors.stub.js`); do not port scrapers here |
 | Azure SQL persistence | **Deferred** — this PR stays local-first |
@@ -353,7 +353,7 @@ By default nobody else can reach your server — it binds to localhost. To share
 
 ## 📋 Responsible & Open
 
-God's Eye View runs on **public data, clear sources, and local-first execution.** No secrets, no private datasets, no mystery scraping — anything involving a private key is brokered server-side. It has the visual grammar of a classified ops room, built entirely from open signals and inspectable code.
+Volee runs on **public data, clear sources, and local-first execution** (God's Eye View open-source foundation). No secrets, no private datasets, no mystery scraping — anything involving a private key is brokered server-side. It has the visual grammar of a classified ops room, built entirely from open signals and inspectable code.
 
 **The line.** This project models **events, assets, infrastructure, and systems** — aircraft, vessels, satellites, fires, cameras, cities. It does not build features for named-person search, face recognition, or tracking individuals, and pull requests that cross that line won't be merged. People are not a query type here.
 
@@ -364,7 +364,7 @@ God's Eye View runs on **public data, clear sources, and local-first execution.*
 <sub>Media note: Bilawal Sidhu created and owns the 17 capture GIFs on this page. He also published the two README PNGs in the existing public project and authorized their continued inclusion here. Any appearance by Bilawal is included with his permission. These files are project documentation, not MIT-licensed standalone assets. Platform interfaces, trademarks, avatars, data, and third-party imagery visible within them remain subject to their respective owners' terms. See [media provenance](docs/media/README.md) and [source terms](DATA_SOURCES.md).</sub>
 
 > [!IMPORTANT]
-> God's Eye View is an exploratory visualization of public and third-party data.
+> Volee is an exploratory visualization of public and third-party data.
 > Data may be delayed, incomplete, modeled, inferred, or wrong. Do not use it
 > for flight or maritime navigation, emergency response, medical or health
 > decisions, investment decisions, or other safety-critical or operational
@@ -388,6 +388,6 @@ One heads-up from the inside: build in this space for a week and you learn that 
 
 ▶️ [Watch the God's Eye View series](https://youtube.com/playlist?list=PL6qSg2I-7_koPbDnSMo0QeeHX_RknA2uv&si=nBGYMoHWQw41v93Q) · 📬 [Map the World](https://maptheworld.ai/) — the newsletter behind the project
 
-**🌐 God's Eye View. No place left behind.**
+**🌐 Volee. No place left behind.**
 
 </div>
