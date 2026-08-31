@@ -6,6 +6,8 @@ import {
   sampleFeaturesForPreview,
   yieldToMain,
 } from './yield.js';
+import { dedupeFeaturesByUid } from './sitesLayer.js';
+import { generateFeatureUID, processGeoJSON } from './importKml.js';
 
 function point(lon, lat, name = 'p') {
   return {
@@ -60,4 +62,41 @@ test('mapInBatches / yieldToMain honour AbortSignal', async () => {
     }),
     (error) => isAbortError(error),
   );
+});
+
+test('dedupeFeaturesByUid keeps first occurrence of each _uid', () => {
+  const features = [
+    { properties: { _uid: 'a' }, geometry: { type: 'Point', coordinates: [1, 1] } },
+    { properties: { _uid: 'b' }, geometry: { type: 'Point', coordinates: [2, 2] } },
+    { properties: { _uid: 'a' }, geometry: { type: 'Point', coordinates: [1, 1] } },
+    { properties: { _uid: 'c' }, geometry: { type: 'Point', coordinates: [3, 3] } },
+  ];
+  const deduped = dedupeFeaturesByUid(features);
+  assert.equal(deduped.length, 3);
+  assert.deepEqual(deduped.map((f) => f.properties._uid), ['a', 'b', 'c']);
+});
+
+test('preview and full processGeoJSON share stable uids for the same pin', () => {
+  const hotel = {
+    type: 'Feature',
+    properties: { name: 'Morning Star Hotel', _name: 'Morning Star Hotel' },
+    geometry: { type: 'Point', coordinates: [18.4241, -33.9249, 0] },
+  };
+  const preview = processGeoJSON({ type: 'FeatureCollection', features: [hotel] }, 'demo-november-pins');
+  const full = processGeoJSON({
+    type: 'FeatureCollection',
+    features: [hotel, point(18.5, -33.9, 'Other')],
+  }, 'demo-november-pins');
+  assert.equal(preview.features[0].properties._uid, full.features[0].properties._uid);
+  assert.match(preview.features[0].properties._uid, /^demo-november-pins:Morning Star Hotel:/);
+  const merged = dedupeFeaturesByUid([...preview.features, ...full.features]);
+  assert.equal(merged.length, 2);
+});
+
+test('generateFeatureUID falls back to _name', () => {
+  const uid = generateFeatureUID({
+    properties: { _name: 'Only Name' },
+    geometry: { type: 'Point', coordinates: [0, 0] },
+  }, 'L', 0);
+  assert.match(uid, /^L:Only Name:/);
 });

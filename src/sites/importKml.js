@@ -17,7 +17,10 @@ export function generateFeatureUID(feature, layerId, index) {
     return `${layerId}:${feature.id}`;
   }
 
-  const name = feature?.properties?.name || feature?.properties?.Name || '';
+  const name = feature?.properties?.name
+    || feature?.properties?.Name
+    || feature?.properties?._name
+    || '';
   if (name) {
     const geomHash = hashString(JSON.stringify(feature.geometry).substring(0, 200));
     return `${layerId}:${name}:${geomHash}`;
@@ -84,6 +87,7 @@ export function processGeoJSON(geojson, layerId) {
       const name = feature.properties?.name
         || feature.properties?.Name
         || feature.properties?.title
+        || feature.properties?._name
         || `Feature ${index + 1}`;
       return {
         ...feature,

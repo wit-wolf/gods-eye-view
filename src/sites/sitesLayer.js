@@ -241,8 +241,15 @@ function clearDataSource() {
   _featureByUid = new Map();
   _count = 0;
   _totalPlanned = 0;
-  if (_dataSource && _viewer) {
-    try { _viewer.dataSources.remove(_dataSource, true); } catch { /* gone */ }
+  if (_dataSource) {
+    try {
+      // Empty first so a raced add() against this collection cannot keep
+      // stale ids alive after we swap the data source reference.
+      _dataSource.entities.removeAll();
+    } catch { /* ignore */ }
+    if (_viewer) {
+      try { _viewer.dataSources.remove(_dataSource, true); } catch { /* gone */ }
+    }
   }
   _dataSource = null;
 }
@@ -259,12 +266,53 @@ function ensureDataSource() {
   return ds;
 }
 
+/**
+ * Drop duplicate `_uid`s (preview∪full and duplicate KML pins share ids).
+ * @param {object[]} features
+ * @returns {object[]}
+ */
+export function dedupeFeaturesByUid(features) {
+  const seen = new Set();
+  const out = [];
+  for (const feature of features || []) {
+    const uid = feature?.properties?._uid;
+    if (!uid) {
+      out.push(feature);
+      continue;
+    }
+    if (seen.has(uid)) continue;
+    seen.add(uid);
+    out.push(feature);
+  }
+  return out;
+}
+
+function hasEntityId(uid) {
+  if (!uid || !_dataSource) return false;
+  if (_featureByUid.has(uid)) return true;
+  try {
+    return Boolean(_dataSource.entities.getById(uid));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Add one feature as a Cesium entity. Idempotent: existing ids are skipped
+ * (preview→full stream, double DEMO, duplicate KML pins).
+ * @returns {object|null} Entity, or null when skipped / unsupported.
+ */
 function addFeatureEntity(feature, index) {
+  if (!_dataSource) return null;
   const props = feature.properties || {};
   const uid = props._uid || `sites:orphan:${index}`;
   const name = props._name || props.name || props.Name || `Site ${index + 1}`;
   const geom = feature.geometry;
   if (!geom) return null;
+
+  if (hasEntityId(uid)) {
+    return _featureByUid.get(uid)?.entity || _dataSource.entities.getById(uid) || null;
+  }
 
   ensureSiteMetadata(uid, name);
   const entityOptions = {
@@ -308,7 +356,20 @@ function addFeatureEntity(feature, index) {
     return null;
   }
 
-  const entity = _dataSource.entities.add(entityOptions);
+  let entity;
+  try {
+    entity = _dataSource.entities.add(entityOptions);
+  } catch (error) {
+    // Cesium throws if the id raced in between hasEntityId and add().
+    const message = String(error?.message || error || '');
+    if (/already exists/i.test(message)) {
+      console.warn(`[Sites] skip duplicate entity id: ${uid}`);
+      return _dataSource.entities.getById(uid) || null;
+    }
+    console.warn(`[Sites] entity add failed for ${uid}:`, error);
+    return null;
+  }
+
   entity.__sitesLayerId = SITES_LAYER_ID;
   entity.__siteUid = uid;
   styleEntity(entity, uid);
@@ -350,7 +411,7 @@ async function paintFeatures(features, {
   batchSize = SITES_PAINT_BATCH,
 } = {}) {
   if (!_viewer || _destroyed) return;
-  const list = Array.isArray(features) ? features : [];
+  const list = dedupeFeaturesByUid(Array.isArray(features) ? features : []);
   _totalPlanned = list.length;
   ensureDataSource();
   _dataSource.show = _enabled;
@@ -365,6 +426,7 @@ async function paintFeatures(features, {
     work: async (batch, startIndex) => {
       if (generation !== _paintGeneration) throw abortErr();
       for (let i = 0; i < batch.length; i++) {
+        if (generation !== _paintGeneration) throw abortErr();
         addFeatureEntity(batch[i], startIndex + i);
       }
       _count = _featureByUid.size;
@@ -403,6 +465,7 @@ async function paintFeatures(features, {
     work: async (batch, startIndex) => {
       if (generation !== _paintGeneration) throw abortErr();
       for (let i = 0; i < batch.length; i++) {
+        if (generation !== _paintGeneration) throw abortErr();
         addFeatureEntity(batch[i], firstPaint + startIndex + i);
       }
       _count = _featureByUid.size;
@@ -664,11 +727,10 @@ async function runDemoLoad() {
       saveLayerCatalog(_catalog);
     }
 
-    // Append features not already painted (by uid).
-    const existing = new Set(_featureByUid.keys());
-    const extra = full.features.filter((f) => {
+    // Append features not already drawn (preview∪full share stable _uids).
+    const extra = dedupeFeaturesByUid(full.features).filter((f) => {
       const uid = f.properties?._uid;
-      return uid && !existing.has(uid);
+      return uid && !hasEntityId(uid);
     });
     if (extra.length) {
       _totalPlanned = _count + extra.length;
@@ -678,7 +740,10 @@ async function runDemoLoad() {
         signal,
         work: async (batch) => {
           if (generation !== _paintGeneration) throw abortErr();
-          for (const feature of batch) addFeatureEntity(feature, _featureByUid.size);
+          for (const feature of batch) {
+            if (generation !== _paintGeneration) throw abortErr();
+            addFeatureEntity(feature, _featureByUid.size);
+          }
           _count = _featureByUid.size;
         },
         onProgress: () => {
