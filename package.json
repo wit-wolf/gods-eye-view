@@ -43,8 +43,11 @@
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",
+    "@tmcw/togeojson": "^7.1.2",
+    "@xmldom/xmldom": "^0.9.12",
     "cesium": "^1.124.0",
     "egm96-universal": "^1.1.1",
+    "jszip": "^3.10.1",
     "mgrs": "^2.1.0",
     "pbf": "^5.1.2",
     "satellite.js": "^6.0.2"

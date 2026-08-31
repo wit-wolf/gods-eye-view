@@ -69,7 +69,7 @@ The live layers are grounded in public feeds: the airliner crossing your screen 
 
 Requires Node.js 24.14.x or 26.x (enforced by `package.json`).
 
-**This fork** ([wit-wolf/gods-eye-view](https://github.com/wit-wolf/gods-eye-view)) adds a South Africa city pack (`config/city_pack.za.json`) and defaults first-run fly-to to **Cape Town**. Upstream cities remain available in the location bar.
+**This fork** ([wit-wolf/gods-eye-view](https://github.com/wit-wolf/gods-eye-view)) adds a South Africa city pack (`config/city_pack.za.json`), defaults first-run fly-to to **Cape Town**, and **absorbs Property Genius** as the **Sites** data layer on the Cesium photoreal globe. The separate MapLibre Property Genius app is not required to view those pins.
 
 1. Copy `.env.example` → `.env` and set `GOOGLE_MAPS_API_KEY`.
 2. Install and run:
@@ -200,6 +200,20 @@ Thirteen live layers. **Ten of them need nothing at all** — no key, no account
 | 🎖️ **Mapped Installations** | Viewport-bounded military-site context from community mapping — incomplete by nature, and labeled that way | OpenStreetMap | 🟢 |
 
 **Also on the globe:** neighborhood overlays · an optional cockpit WX cloud effect. **Bundled static infrastructure:** Datacenters (4,351), Dams (704), and Submarine Cables (712).
+
+### Sites (Property Genius → GEV)
+
+Property Genius was a local-first SA retail site-screening prototype (MapLibre + OSM). Its workflow now lives inside this fork as the **Sites** layer — not a second app:
+
+| Capability | Status in this fork |
+|---|---|
+| KMZ / KML / GeoJSON import (JSZip + `@tmcw/togeojson`) | **Ported** — Data Layers → **Sites** → **IMPORT**, or drop a file onto the page while Sites is on |
+| Cesium photoreal rendering (points + polygons, terrain-clamped) | **Ported** — replaces the MapLibre flat map / Google Earth workflow |
+| Clickable site card (name, Lead/Screening/Shortlisted/Rejected, notes, weighted scores, original KML attrs) | **Ported** — metadata in `localStorage`; imported GeoJSON in IndexedDB |
+| November Google Earth Pins demo | **Bundled** — `public/sites/November_Google_Earth_Pins.kmz` plus a gzipped Point/Polygon subset for fast first paint. Enable **Sites**, then **DEMO** (or first enable auto-loads the demo catalog) |
+| Zoning GeoJSON overlay + intersection | **Deferred** — SA has no national zoning API; leave for a later PR |
+| SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** — stub only (`src/sites/competitors.stub.js`); do not port scrapers here |
+| Azure SQL persistence | **Deferred** — this PR stays local-first |
 
 **Missing a layer you want?** Open an issue — or add it and send the PR.
 

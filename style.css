@@ -9161,3 +9161,175 @@ body.scene-playback-mode #first-run-launcher {
   /* Scrolling a tile into view must not animate either. */
   .first-run-choices { scroll-behavior: auto; }
 }
+
+/* ── Sites / Property Genius card ─────────────────────────────────────── */
+.site-card-panel {
+  position: fixed;
+  top: 5.5rem;
+  right: 1.1rem;
+  z-index: 40;
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+  padding: 0.9rem 1rem 1.1rem;
+  border: 1px solid rgba(61, 214, 198, 0.35);
+  background:
+    linear-gradient(165deg, rgba(8, 18, 24, 0.94), rgba(6, 12, 18, 0.9));
+  color: #d7ece8;
+  font-family: "IBM Plex Mono", "Share Tech Mono", ui-monospace, monospace;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.site-card-panel[hidden] { display: none !important; }
+
+.site-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.site-card-kicker {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  color: rgba(61, 214, 198, 0.85);
+}
+
+.site-card-close {
+  border: 0;
+  background: transparent;
+  color: #9fb7b2;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.site-card-title {
+  margin: 0.45rem 0 0.55rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #f2fffb;
+}
+
+.site-card-score-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.site-card-score {
+  font-size: 1.55rem;
+  font-weight: 700;
+}
+
+.site-card-score-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  color: #8ea8a2;
+}
+
+.site-card-status-pill {
+  margin-left: auto;
+  border: 1px solid;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.site-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.65rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: #9fb7b2;
+}
+
+.site-card-field select,
+.site-card-field textarea {
+  width: 100%;
+  border: 1px solid rgba(159, 183, 178, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: #e7f7f3;
+  padding: 0.4rem 0.45rem;
+  font: inherit;
+}
+
+.site-card-scores {
+  margin: 0.4rem 0 0.7rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(159, 183, 178, 0.2);
+}
+
+.site-card-section-title {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.45rem;
+  color: rgba(61, 214, 198, 0.9);
+}
+
+.site-card-score-dim {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr 1.4rem;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.28rem;
+  font-size: 0.7rem;
+  color: #b7cbc6;
+}
+
+.site-card-score-dim input[type="range"] {
+  width: 100%;
+  accent-color: #3dd6c6;
+}
+
+.site-card-attrs {
+  margin-top: 0.55rem;
+  border-top: 1px solid rgba(159, 183, 178, 0.2);
+  padding-top: 0.45rem;
+  font-size: 0.68rem;
+}
+
+.site-card-attrs summary {
+  cursor: pointer;
+  color: #9fb7b2;
+  letter-spacing: 0.06em;
+}
+
+.site-card-attrs dl {
+  margin: 0.45rem 0 0;
+}
+
+.site-card-attrs dl > div {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
+.site-card-attrs dt {
+  color: #7f9892;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.site-card-attrs dd {
+  margin: 0;
+  color: #d7ece8;
+  word-break: break-word;
+}
+
+@media (max-width: 720px) {
+  .site-card-panel {
+    top: auto;
+    bottom: 4.5rem;
+    right: 0.6rem;
+    left: 0.6rem;
+    width: auto;
+    max-height: 45vh;
+  }
+}

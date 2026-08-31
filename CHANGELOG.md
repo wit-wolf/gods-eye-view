@@ -3,6 +3,16 @@
 This changelog records public product changes. For the authoritative description
 of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md).
 
+## [Unreleased] — 2026-08-31
+
+### Added
+
+- Absorbed Property Genius into this fork as the **Sites** data layer: KMZ/KML
+  import, Cesium globe rendering, clickable site cards (status + weighted
+  scores), local metadata persistence, and the November Google Earth Pins demo.
+  The MapLibre Property Genius app is no longer required to view those pins.
+  Zoning UI, retail competitor scrapers, and Azure persistence remain deferred.
+
 ## [Unreleased] — 2026-08-24
 
 ### Added
