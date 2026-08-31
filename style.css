@@ -1823,6 +1823,7 @@ body.ui-clean-view #scene-runtime.active {
 
 /* ── Location Search ─────────────────────────── */
 .location-search-wrap {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0;
@@ -1876,10 +1877,6 @@ body.ui-clean-view #scene-runtime.active {
 
 #location-search.searching {
   opacity: 0.5;
-}
-
-.location-search-wrap {
-  position: relative;
 }
 
 .location-search-suggestions {

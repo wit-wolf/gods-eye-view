@@ -9386,6 +9386,8 @@ export class StyleManager {
       this._clearLocationSuggestions();
       if (error?.keyMissing || error?.code === 'KEY_MISSING') {
         this._showToast(error.message || 'GOOGLE_MAPS_API_KEY is not set');
+      } else if (error?.code === 'REQUEST_DENIED' || /denied|blocked|API key/i.test(error?.message || '')) {
+        this._showToast(error.message || 'Google Places request denied');
       }
     }
   }

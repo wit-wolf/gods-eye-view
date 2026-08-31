@@ -30,10 +30,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   **Explore**. Spy chrome (TOP SECRET banners, MIC tip, Detection, CRT/NVG/
   FLIR/Noir/Snow) is hidden on the property profile; weather/fire presentation
   remains via kept layers.
-- Location search is restricted to **South Africa** via `/api/google/geocode`
-  (`components=country:ZA`) and Places Autocomplete (`includedRegionCodes: za`),
-  so “George” flies to Western Cape. Missing `GOOGLE_MAPS_API_KEY` surfaces an
-  honest toast instead of a silent no-op.
+- Location search is restricted to **South Africa** via browser Places API
+  (New) Text Search / Autocomplete / Place Details (`regionCode` /
+  `includedRegionCodes: za`) using the same referrer-restricted
+  `GOOGLE_MAPS_API_KEY` as Photorealistic 3D Tiles — not the Node geocode
+  proxy (referrer keys are denied server-side). “George” flies to Western
+  Cape. Missing key / Google denial surfaces an honest toast.
 
 ## [Unreleased] — 2026-08-24
 

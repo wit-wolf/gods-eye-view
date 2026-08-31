@@ -391,16 +391,17 @@ export function findPoiByName(query) {
 export const CANCELLED_SEARCH = Object.freeze({ cancelled: true });
 
 /**
- * Geocode a place name using Google Geocoding (via `/api/google/geocode`), then
- * fly there at a scale appropriate to the request. On the Volee property
- * profile, results are restricted to South Africa (`components=country:ZA`) so
- * “George” is Western Cape, not Utah. Countries and cities use their viewport
- * by default; precise landmarks/buildings use close landmark framing.
+ * Resolve a place name via browser Places API (New) Text Search / Place Details,
+ * then fly there at a scale appropriate to the request. On the Volee property
+ * profile, results are restricted to South Africa (`regionCode` / included
+ * region codes) so “George” is Western Cape, not Utah. Uses the same
+ * referrer-restricted Maps key as Photorealistic 3D Tiles — not the Node
+ * geocode proxy (referrer-restricted keys are denied server-side).
  *
  * @param {object} viewer Cesium viewer
  * @param {string} query Free-text place query
  * @param {object} [options]
- * @param {string} [options.placeId] Places place id — skips geocode text lookup
+ * @param {string} [options.placeId] Places place id — skips text lookup
  * @param {string|null} [options.countryCode] Override product country (null = unrestricted)
  */
 export async function searchAndFlyTo(viewer, query, options = {}) {
@@ -430,6 +431,7 @@ export async function searchAndFlyTo(viewer, query, options = {}) {
       : searchCountryCode(PRODUCT_PROFILE);
     const data = await geocodeSearch(query, {
       countryCode,
+      // bounds ignored by Places Text Search path; kept for call-site compat
       bounds: bias,
     });
 

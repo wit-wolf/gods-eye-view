@@ -56,7 +56,10 @@ Kept layers report source and freshness honestly — including partial, delayed,
 - **🚗 Traffic / roads:** TomTom/OSM road flow when configured (not CCTV).
 - **🌤 Weather:** Local weather readouts / cockpit WX where the globe already surfaces them.
 - **🔗 Share Links:** Camera and enabled layers serialize into a URL.
-- **🔍 SA search:** Location search is hard-biased to South Africa (Geocoding `country:ZA` + Places Autocomplete). “George” is Western Cape; shopping centres like Canal Walk / Hemingways resolve in-country.
+- **🔍 SA search:** Location search uses browser Places API (New) with the same
+  referrer-restricted Maps key as 3D tiles (`regionCode` / `includedRegionCodes: za`).
+  “George” is Western Cape; shopping centres like Canal Walk / Hemingways resolve
+  in-country.
 
 **Cut from this product (HUD + runtime):** aircraft, military air, ships/AIS, satellites, rocket launches, CCTV, radio, voice/MIC, Detection overlay, and stacked intel looks (CRT / NVG / FLIR / Noir / Snow). Re-enable via `src/productProfile.js`.
 

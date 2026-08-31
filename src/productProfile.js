@@ -59,8 +59,9 @@ export const PRODUCT_PROFILE = Object.freeze({
   cutVisualStyles: VOLEE_CUT_VISUAL_STYLES,
   /**
    * Location search is hard-biased to South Africa so “George” is Western Cape,
-   * not Utah. Geocoding uses `components=country:ZA`; Places Autocomplete uses
-   * `includedRegionCodes: ["za"]`.
+   * not Utah. Browser Places Autocomplete uses `includedRegionCodes: ["za"]`;
+   * Text Search uses `regionCode: "ZA"`. (Geocoding REST cannot use the
+   * referrer-restricted Maps key that powers 3D tiles.)
    */
   search: Object.freeze({
     countryCode: 'ZA',
