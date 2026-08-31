@@ -204,17 +204,15 @@ export async function importAndProcessFile(file, layerId, parseOptions = {}) {
 
 /**
  * Decode a gzipped GeoJSON ArrayBuffer (demo bundle).
+ * Uses the Web DecompressionStream API (available in modern browsers and Node 24+).
  * @param {ArrayBuffer} buffer
  * @returns {Promise<GeoJSON.FeatureCollection>}
  */
 export async function parseGzippedGeoJSON(buffer) {
-  if (typeof DecompressionStream === 'function') {
-    const stream = new Response(buffer).body.pipeThrough(new DecompressionStream('gzip'));
-    const text = await new Response(stream).text();
-    return JSON.parse(text);
+  if (typeof DecompressionStream !== 'function') {
+    throw new Error('Gzipped GeoJSON requires DecompressionStream');
   }
-  // Node / older browsers: dynamic zlib
-  const { gunzipSync } = await import('node:zlib');
-  const text = gunzipSync(Buffer.from(buffer)).toString('utf8');
+  const stream = new Response(buffer).body.pipeThrough(new DecompressionStream('gzip'));
+  const text = await new Response(stream).text();
   return JSON.parse(text);
 }
