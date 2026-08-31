@@ -5420,6 +5420,11 @@ function googlePlacesContextProxy() {
       const latitude = Number(requestUrl.searchParams.get('lat'));
       const longitude = Number(requestUrl.searchParams.get('lon'));
       const radiusM = Math.max(50, Math.min(50000, Number(requestUrl.searchParams.get('radiusM')) || 4000));
+      const regionCode = String(requestUrl.searchParams.get('regionCode') || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+        .slice(0, 2);
       if (!textQuery || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
         res.statusCode = 400;
         res.setHeader('Content-Type', 'application/json');
@@ -5452,6 +5457,7 @@ function googlePlacesContextProxy() {
               },
             },
             maxResultCount: 5,
+            ...(regionCode ? { regionCode } : {}),
           }),
         });
         const data = await response.json().catch(() => ({}));
@@ -5496,6 +5502,275 @@ function googlePlacesContextProxy() {
         res.statusCode = 502;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.end(JSON.stringify({ error: error?.message || 'Google Places request failed', places: [] }));
+      }
+    });
+
+    // Forward geocode for the location search box. Country restriction
+    // (`components=country:ZA` on Volee) is applied server-side so “George”
+    // cannot resolve to Utah. Key stays on the server for this path.
+    middlewares.use('/api/google/geocode', async (req, res) => {
+      if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed', status: 'ERROR', results: [] }));
+        return;
+      }
+
+      const _grl = googleRateLimiter();
+      if (_grl && !_grl(clientKey(req))) {
+        res.statusCode = 429;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Retry-After', '5');
+        res.end(JSON.stringify({ error: 'Rate limit exceeded', status: 'OVER_QUERY_LIMIT', results: [] }));
+        return;
+      }
+
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          error: 'GOOGLE_MAPS_API_KEY is not set',
+          status: 'REQUEST_DENIED',
+          results: [],
+        }));
+        return;
+      }
+
+      const requestUrl = new URL(req.url || '', 'http://localhost');
+      const textQuery = String(requestUrl.searchParams.get('q') || '').trim();
+      const country = String(requestUrl.searchParams.get('country') || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+        .slice(0, 2);
+      const bounds = String(requestUrl.searchParams.get('bounds') || '').trim();
+      if (!textQuery) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'q is required', status: 'INVALID_REQUEST', results: [] }));
+        return;
+      }
+
+      try {
+        const upstream = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+        upstream.searchParams.set('address', textQuery);
+        upstream.searchParams.set('key', apiKey);
+        if (country) upstream.searchParams.set('components', `country:${country}`);
+        // Soft viewport bias only — country components above are the hard gate.
+        if (bounds && /^-?\d+(\.\d+)?,-?\d+(\.\d+)?\|-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(bounds)) {
+          upstream.searchParams.set('bounds', bounds);
+        }
+        const response = await fetch(upstream);
+        const data = await response.json().catch(() => ({}));
+        const status = data.status || (response.ok ? 'UNKNOWN' : 'ERROR');
+        res.statusCode = response.ok ? 200 : response.status;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'private, max-age=120');
+        res.end(JSON.stringify({
+          status,
+          results: Array.isArray(data.results) ? data.results : [],
+          error: status === 'OK' || status === 'ZERO_RESULTS'
+            ? null
+            : (data.error_message || data.error || 'Geocoding request failed'),
+        }));
+      } catch (error) {
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({
+          error: error?.message || 'Geocoding request failed',
+          status: 'ERROR',
+          results: [],
+        }));
+      }
+    });
+
+    // Places Autocomplete (New) — as-you-type SA suggestions for the location bar.
+    middlewares.use('/api/google/autocomplete', async (req, res) => {
+      if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed', suggestions: [] }));
+        return;
+      }
+
+      const _grl = googleRateLimiter();
+      if (_grl && !_grl(clientKey(req))) {
+        res.statusCode = 429;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Retry-After', '5');
+        res.end(JSON.stringify({ error: 'Rate limit exceeded', suggestions: [] }));
+        return;
+      }
+
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'GOOGLE_MAPS_API_KEY is not set', suggestions: [] }));
+        return;
+      }
+
+      const requestUrl = new URL(req.url || '', 'http://localhost');
+      const textQuery = String(requestUrl.searchParams.get('q') || '').trim();
+      const regionParam = String(requestUrl.searchParams.get('region') || 'za');
+      const regionCodes = regionParam
+        .split(',')
+        .map((code) => code.trim().toLowerCase())
+        .filter((code) => /^[a-z]{2}$/.test(code))
+        .slice(0, 5);
+      if (!textQuery) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'q is required', suggestions: [] }));
+        return;
+      }
+
+      try {
+        const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': [
+              'suggestions.placePrediction.placeId',
+              'suggestions.placePrediction.text',
+              'suggestions.placePrediction.structuredFormat',
+              'suggestions.placePrediction.types',
+            ].join(','),
+          },
+          body: JSON.stringify({
+            input: textQuery,
+            includedRegionCodes: regionCodes.length ? regionCodes : ['za'],
+            includeQueryPredictions: false,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        const suggestions = Array.isArray(data.suggestions)
+          ? data.suggestions
+            .map((entry) => {
+              const prediction = entry?.placePrediction;
+              if (!prediction?.placeId) return null;
+              const label = prediction.text?.text
+                || [prediction.structuredFormat?.mainText?.text, prediction.structuredFormat?.secondaryText?.text]
+                  .filter(Boolean)
+                  .join(', ');
+              if (!label) return null;
+              return {
+                placeId: prediction.placeId,
+                label,
+                mainText: prediction.structuredFormat?.mainText?.text || label,
+                secondaryText: prediction.structuredFormat?.secondaryText?.text || '',
+                types: Array.isArray(prediction.types) ? prediction.types.slice(0, 8) : [],
+              };
+            })
+            .filter(Boolean)
+            .slice(0, 8)
+          : [];
+        res.statusCode = response.ok ? 200 : response.status;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'private, max-age=60');
+        res.end(JSON.stringify({
+          suggestions,
+          error: response.ok ? null : data.error?.message || 'Autocomplete request failed',
+        }));
+      } catch (error) {
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({
+          error: error?.message || 'Autocomplete request failed',
+          suggestions: [],
+        }));
+      }
+    });
+
+    // Place Details (New) — lat/lng for an Autocomplete place id.
+    middlewares.use('/api/google/place', async (req, res) => {
+      if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed', place: null }));
+        return;
+      }
+
+      const _grl = googleRateLimiter();
+      if (_grl && !_grl(clientKey(req))) {
+        res.statusCode = 429;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Retry-After', '5');
+        res.end(JSON.stringify({ error: 'Rate limit exceeded', place: null }));
+        return;
+      }
+
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'GOOGLE_MAPS_API_KEY is not set', place: null }));
+        return;
+      }
+
+      const requestUrl = new URL(req.url || '', 'http://localhost');
+      const placeId = String(requestUrl.searchParams.get('id') || '').trim();
+      if (!placeId || !/^[A-Za-z0-9_-]{10,200}$/.test(placeId)) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Valid id is required', place: null }));
+        return;
+      }
+
+      try {
+        const resourceName = placeId.startsWith('places/') ? placeId : `places/${placeId}`;
+        const response = await fetch(`https://places.googleapis.com/v1/${resourceName}`, {
+          method: 'GET',
+          headers: {
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': [
+              'id',
+              'displayName',
+              'formattedAddress',
+              'location',
+              'viewport',
+              'types',
+              'primaryType',
+            ].join(','),
+          },
+        });
+        const data = await response.json().catch(() => ({}));
+        const latitude = data.location?.latitude ?? null;
+        const longitude = data.location?.longitude ?? null;
+        const vp = data.viewport;
+        const viewport = (
+          Number.isFinite(vp?.low?.latitude) && Number.isFinite(vp?.low?.longitude)
+          && Number.isFinite(vp?.high?.latitude) && Number.isFinite(vp?.high?.longitude)
+        ) ? {
+          low: { latitude: vp.low.latitude, longitude: vp.low.longitude },
+          high: { latitude: vp.high.latitude, longitude: vp.high.longitude },
+        } : null;
+        const place = Number.isFinite(latitude) && Number.isFinite(longitude) ? {
+          id: data.id || placeId,
+          name: data.displayName?.text || null,
+          address: data.formattedAddress || null,
+          latitude,
+          longitude,
+          viewport,
+          types: Array.isArray(data.types) ? data.types.slice(0, 8) : [],
+          primaryType: data.primaryType || null,
+        } : null;
+        res.statusCode = response.ok ? 200 : response.status;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        res.end(JSON.stringify({
+          place,
+          error: response.ok ? null : data.error?.message || 'Place details request failed',
+        }));
+      } catch (error) {
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({
+          error: error?.message || 'Place details request failed',
+          place: null,
+        }));
       }
     });
   }

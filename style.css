@@ -1878,6 +1878,55 @@ body.ui-clean-view #scene-runtime.active {
   opacity: 0.5;
 }
 
+.location-search-wrap {
+  position: relative;
+}
+
+.location-search-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: rgba(10, 14, 20, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.location-search-suggestions[hidden] {
+  display: none !important;
+}
+
+.location-search-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.location-search-suggestion strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.location-search-suggestion small {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.location-search-suggestion:hover,
+.location-search-suggestion.active {
+  background: rgba(0, 212, 255, 0.12);
+}
+
 /* ── Top-center Globe Actions ────────────────── */
 #top-center-actions {
   position: fixed;

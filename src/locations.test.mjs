@@ -58,11 +58,23 @@ async function runSearch(viewer, options, { result = AUSTIN_RESULT, query = 'aus
   const priorWindow = globalThis.window;
   const priorFetch = globalThis.fetch;
   globalThis.window = { __GOOGLE_MAPS_API_KEY__: 'test-key' };
-  globalThis.fetch = async () => ({
-    json: async () => ({ status: 'OK', results: [result] }),
-  });
+  globalThis.fetch = async (url) => {
+    const href = String(url);
+    if (href.includes('/api/google/text-search')) {
+      return { ok: true, status: 200, json: async () => ({ places: [] }) };
+    }
+    if (href.includes('/api/google/place')) {
+      return { ok: true, status: 200, json: async () => ({ place: null }) };
+    }
+    // Default: geocode proxy shape
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'OK', results: [result], error: null }),
+    };
+  };
   try {
-    return await searchAndFlyTo(viewer, query, options);
+    return await searchAndFlyTo(viewer, query, { ...options, countryCode: null });
   } finally {
     globalThis.fetch = priorFetch;
     if (hadWindow) globalThis.window = priorWindow;

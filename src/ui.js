@@ -13,6 +13,7 @@ import {
   decodeBloomIntensity,
 } from './bloom.js';
 import { LOCATIONS, CITY_POIS, GLOBE_VIEW, flyToGlobeView, flyToPresetLocation, flyToPOI, searchAndFlyTo } from './locations.js';
+import { autocompleteSearch } from './search/googlePlacesSearch.js';
 import { locationMiniStatus } from './locationStatus.js';
 import { interruptCameraMotion } from './cameraVerbs.js';
 import {
@@ -202,6 +203,15 @@ import {
 const TRANSITION_DURATION_MS = 500;
 /** Map of style name to its GLSL shader module for post-process stages. */
 const STYLES = { retro: retroShader, surveillance: nightVisionShader, thermal: thermalShader, anime: animeShader, noir: noirShader, snow: snowShader };
+
+/** Escape text interpolated into location-search suggestion markup. */
+function escapeHtmlLite(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 /** Versioned localStorage namespace prefix to invalidate stale panel layouts. */
 const PANEL_LAYOUT_STORAGE_VERSION = 'v6';
 const SHARE_PANEL_STATE_SPECS = Object.freeze([
@@ -2371,6 +2381,10 @@ export class StyleManager {
     this._toast = document.getElementById('toast');
     this._locationSearch = document.getElementById('location-search');
     this._searchToggle = document.getElementById('search-toggle');
+    this._locationSearchSuggestions = document.getElementById('location-search-suggestions');
+    this._locationSearchAbort = null;
+    this._locationSearchDebounce = null;
+    this._locationSuggestionActive = -1;
     this._locationPills = document.getElementById('location-pills');
     this._poiRow = document.getElementById('poi-row');
     this._locationBarDivider = document.getElementById('location-bar-divider');
@@ -9305,55 +9319,187 @@ export class StyleManager {
       this._locationSearch.classList.toggle('expanded');
       if (this._locationSearch.classList.contains('expanded')) {
         this._locationSearch.focus();
+      } else {
+        this._clearLocationSuggestions();
       }
     });
 
-    // Search submit on Enter
-    this._locationSearch.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
-        const query = this._locationSearch.value.trim();
-        if (!query) return;
-        const generation = this._beginDeferredNavigation('location');
-        if (generation === false) {
-          this._locationSearch.classList.remove('searching');
-          this._locationSearch.blur();
-          return;
-        }
-        this._activeLocationSearchGeneration = generation;
-        this._locationSearch.classList.add('searching');
-        try {
-          const destination = await searchAndFlyTo(this.viewer, query, {
-            beforeFly: () => this._reassertNavigationHandoff(generation),
-          });
-          if (this._disposed || generation !== this._navigationGeneration) return;
-          if (destination?.cancelled) {
-            // Authority changed while the lookup was resolving; remain inert.
-          } else if (destination) {
-            // The ACTIVE STYLE indicator reports the STYLE and nothing else.
-            // Writing the searched city here made the top-right corner read
-            // "ACTIVE STYLE / TOKYO"; where the camera is belongs to the
-            // LOCATION panel's own readout, which is updated below.
-            //
-            // Set before _setActiveLocation(null) so its own mini-status
-            // refresh already sees the destination — the readout never blinks
-            // through "Location: --" on the way to the searched place.
-            this._searchedLocationLabel = destination.label || query;
-            this._setActiveLocation(null);
-            this._currentPoi = null;
-            this._collapsePOIRow();
-            this._updateLocationMiniStatus();
-          } else {
-            this._showToast('Location not found');
-          }
-        } catch (err) {
-          console.error('[Search] Geocoding failed:', err);
-          if (this._disposed || generation !== this._navigationGeneration) return;
-          this._showToast('Search failed');
-        } finally {
-          this._settleLocationSearchUi(generation);
-        }
-      }
+    if (PRODUCT_PROFILE.search?.placeholder && this._locationSearch) {
+      this._locationSearch.placeholder = PRODUCT_PROFILE.search.placeholder;
+    }
+
+    this._locationSearch?.addEventListener('input', () => {
+      this._scheduleLocationAutocomplete();
     });
+    this._locationSearch?.addEventListener('blur', () => {
+      // Delay so a mousedown on a suggestion still registers as a click.
+      window.setTimeout(() => this._clearLocationSuggestions(), 150);
+    });
+
+    // Search submit on Enter (or pick highlighted suggestion)
+    this._locationSearch.addEventListener('keydown', async (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const moved = this._moveLocationSuggestion(e.key === 'ArrowDown' ? 1 : -1);
+        if (moved) e.preventDefault();
+        return;
+      }
+      if (e.key === 'Escape') {
+        this._clearLocationSuggestions();
+        return;
+      }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const query = this._locationSearch.value.trim();
+      if (!query) return;
+      const suggestion = this._selectedLocationSuggestion();
+      await this._runLocationSearch(query, suggestion?.placeId || null);
+    });
+  }
+
+  /**
+   * Debounced Places Autocomplete (New) for the location bar — ZA-restricted.
+   * @returns {void}
+   */
+  _scheduleLocationAutocomplete() {
+    clearTimeout(this._locationSearchDebounce);
+    const query = this._locationSearch?.value?.trim() || '';
+    if (query.length < 2) {
+      this._clearLocationSuggestions();
+      return;
+    }
+    this._locationSearchDebounce = setTimeout(() => {
+      void this._fetchLocationSuggestions(query);
+    }, 220);
+  }
+
+  /** @param {string} query */
+  async _fetchLocationSuggestions(query) {
+    this._locationSearchAbort?.abort();
+    const controller = new AbortController();
+    this._locationSearchAbort = controller;
+    try {
+      const suggestions = await autocompleteSearch(query, { signal: controller.signal });
+      if (controller.signal.aborted || this._disposed) return;
+      this._renderLocationSuggestions(suggestions);
+    } catch (error) {
+      if (controller.signal.aborted || this._disposed) return;
+      this._clearLocationSuggestions();
+      if (error?.keyMissing || error?.code === 'KEY_MISSING') {
+        this._showToast(error.message || 'GOOGLE_MAPS_API_KEY is not set');
+      }
+    }
+  }
+
+  /** @param {Array<{placeId:string,label:string,mainText:string,secondaryText:string}>} suggestions */
+  _renderLocationSuggestions(suggestions) {
+    const list = this._locationSearchSuggestions;
+    if (!list) return;
+    list.innerHTML = '';
+    this._locationSuggestionActive = -1;
+    if (!suggestions.length) {
+      list.hidden = true;
+      this._locationSearch?.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    for (const [index, suggestion] of suggestions.entries()) {
+      const item = document.createElement('li');
+      item.className = 'location-search-suggestion';
+      item.id = `location-search-suggestion-${index}`;
+      item.setAttribute('role', 'option');
+      item.dataset.placeId = suggestion.placeId;
+      item.dataset.label = suggestion.label;
+      item.innerHTML = `<strong>${escapeHtmlLite(suggestion.mainText)}</strong>`
+        + (suggestion.secondaryText
+          ? `<small>${escapeHtmlLite(suggestion.secondaryText)}</small>`
+          : '');
+      item.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        void this._runLocationSearch(suggestion.label, suggestion.placeId);
+      });
+      list.appendChild(item);
+    }
+    list.hidden = false;
+    this._locationSearch?.setAttribute('aria-expanded', 'true');
+  }
+
+  _clearLocationSuggestions() {
+    clearTimeout(this._locationSearchDebounce);
+    this._locationSearchAbort?.abort();
+    this._locationSearchAbort = null;
+    this._locationSuggestionActive = -1;
+    if (this._locationSearchSuggestions) {
+      this._locationSearchSuggestions.innerHTML = '';
+      this._locationSearchSuggestions.hidden = true;
+    }
+    this._locationSearch?.setAttribute('aria-expanded', 'false');
+    this._locationSearch?.removeAttribute('aria-activedescendant');
+  }
+
+  /** @param {number} delta */
+  _moveLocationSuggestion(delta) {
+    const items = [...(this._locationSearchSuggestions?.querySelectorAll('[role="option"]') || [])];
+    if (!items.length) return false;
+    const next = Math.max(0, Math.min(items.length - 1, this._locationSuggestionActive + delta));
+    this._locationSuggestionActive = next;
+    items.forEach((el, index) => el.classList.toggle('active', index === next));
+    const active = items[next];
+    if (active) {
+      this._locationSearch?.setAttribute('aria-activedescendant', active.id);
+      this._locationSearch.value = active.dataset.label || this._locationSearch.value;
+    }
+    return true;
+  }
+
+  _selectedLocationSuggestion() {
+    const items = [...(this._locationSearchSuggestions?.querySelectorAll('[role="option"]') || [])];
+    const active = items[this._locationSuggestionActive];
+    if (!active) return null;
+    return { placeId: active.dataset.placeId, label: active.dataset.label };
+  }
+
+  /**
+   * Geocode (or Place Details) + fly. Shared by Enter and suggestion clicks.
+   * @param {string} query
+   * @param {string|null} placeId
+   */
+  async _runLocationSearch(query, placeId = null) {
+    this._clearLocationSuggestions();
+    const generation = this._beginDeferredNavigation('location');
+    if (generation === false) {
+      this._locationSearch.classList.remove('searching');
+      this._locationSearch.blur();
+      return;
+    }
+    this._activeLocationSearchGeneration = generation;
+    this._locationSearch.classList.add('searching');
+    try {
+      const destination = await searchAndFlyTo(this.viewer, query, {
+        placeId: placeId || undefined,
+        beforeFly: () => this._reassertNavigationHandoff(generation),
+      });
+      if (this._disposed || generation !== this._navigationGeneration) return;
+      if (destination?.cancelled) {
+        // Authority changed while the lookup was resolving; remain inert.
+      } else if (destination) {
+        this._searchedLocationLabel = destination.label || query;
+        this._setActiveLocation(null);
+        this._currentPoi = null;
+        this._collapsePOIRow();
+        this._updateLocationMiniStatus();
+      } else {
+        this._showToast('No South African place found');
+      }
+    } catch (err) {
+      console.error('[Search] Geocoding failed:', err);
+      if (this._disposed || generation !== this._navigationGeneration) return;
+      if (err?.keyMissing || err?.code === 'KEY_MISSING') {
+        this._showToast(err.message || 'GOOGLE_MAPS_API_KEY is not set');
+      } else {
+        this._showToast(err?.message || 'Search failed');
+      }
+    } finally {
+      this._settleLocationSearchUi(generation);
+    }
   }
 
   /**

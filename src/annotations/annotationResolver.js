@@ -3,6 +3,7 @@ import { lookupNeighborhoodRing } from '../data/neighborhoodPolygons.js';
 import { lookupNaturalRegionOutline, findNaturalRegion } from '../data/naturalEarthRegions.js';
 import { registerDynamicCredit, NATURAL_EARTH_CREDIT } from '../data/dataCredits.js';
 import { isPickedWorldPosition } from '../data/scenePick.js';
+import { searchCountryCode } from '../search/googlePlacesSearch.js';
 
 /**
  * Annotation target resolver.
@@ -683,6 +684,8 @@ async function placesTextSearch(query, centerLat, centerLon, radiusM, signal) {
     lon: String(centerLon),
     radiusM: String(radiusM),
   });
+  const region = searchCountryCode();
+  if (region) params.set('regionCode', region);
   try {
     const response = await fetch(`/api/google/text-search?${params}`, { signal });
     if (!response.ok) { negCache(placesCache, cacheKey, signal, false); return null; } // transient

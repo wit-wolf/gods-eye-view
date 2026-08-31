@@ -57,6 +57,16 @@ export const PRODUCT_PROFILE = Object.freeze({
   enabledLayerIds: VOLEE_ENABLED_LAYER_IDS,
   cutLayerIds: VOLEE_CUT_LAYER_IDS,
   cutVisualStyles: VOLEE_CUT_VISUAL_STYLES,
+  /**
+   * Location search is hard-biased to South Africa so “George” is Western Cape,
+   * not Utah. Geocoding uses `components=country:ZA`; Places Autocomplete uses
+   * `includedRegionCodes: ["za"]`.
+   */
+  search: Object.freeze({
+    countryCode: 'ZA',
+    regionCodes: Object.freeze(['za']),
+    placeholder: 'Search South Africa…',
+  }),
   features: Object.freeze({
     voice: false,
     radio: false,

@@ -565,7 +565,8 @@
             <button id="search-toggle" class="search-toggle-btn" title="Search any location">
               <span>&#x1F50E;</span>
             </button>
-            <input type="text" id="location-search" placeholder="Search any location..." autocomplete="off" spellcheck="false" />
+            <input type="text" id="location-search" placeholder="Search South Africa…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="location-search-suggestions" aria-expanded="false" />
+            <ul id="location-search-suggestions" class="location-search-suggestions" role="listbox" hidden></ul>
           </div>
         </div>
       </div>
