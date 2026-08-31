@@ -9162,13 +9162,13 @@ body.scene-playback-mode #first-run-launcher {
   .first-run-choices { scroll-behavior: auto; }
 }
 
-/* ── Sites / Property Genius card ─────────────────────────────────────── */
+/* ── Sites research brief ─────────────────────────────────────────── */
 .site-card-panel {
   position: fixed;
   top: 5.5rem;
   right: 1.1rem;
   z-index: 40;
-  width: min(22rem, calc(100vw - 2rem));
+  width: min(24rem, calc(100vw - 2rem));
   max-height: calc(100vh - 7rem);
   overflow: auto;
   padding: 0.9rem 1rem 1.1rem;
@@ -9206,37 +9206,97 @@ body.scene-playback-mode #first-run-launcher {
 }
 
 .site-card-title {
-  margin: 0.45rem 0 0.55rem;
+  margin: 0.45rem 0 0.7rem;
   font-size: 1.05rem;
   font-weight: 600;
   color: #f2fffb;
 }
 
-.site-card-score-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.55rem;
-  margin-bottom: 0.75rem;
+.site-card-section {
+  margin: 0 0 0.85rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(159, 183, 178, 0.18);
 }
 
-.site-card-score {
-  font-size: 1.55rem;
-  font-weight: 700;
+.site-card-section-title {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.4rem;
+  color: rgba(61, 214, 198, 0.9);
 }
 
-.site-card-score-label {
-  font-size: 0.65rem;
-  letter-spacing: 0.08em;
+.site-card-identity {
+  margin: 0;
+}
+
+.site-card-identity > div,
+.site-card-attrs dl > div {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: 0.35rem;
+  margin-bottom: 0.28rem;
+  font-size: 0.72rem;
+}
+
+.site-card-identity dt,
+.site-card-attrs dt {
+  color: #7f9892;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.site-card-identity dd,
+.site-card-attrs dd {
+  margin: 0;
+  color: #d7ece8;
+  word-break: break-word;
+}
+
+.site-card-description {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: #e7f7f3;
+}
+
+.site-card-muted {
+  margin: 0 0 0.4rem;
+  font-size: 0.68rem;
   color: #8ea8a2;
+  line-height: 1.4;
 }
 
-.site-card-status-pill {
-  margin-left: auto;
-  border: 1px solid;
-  padding: 0.15rem 0.45rem;
-  font-size: 0.65rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.site-card-nearby-summary {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  color: #e7f7f3;
+}
+
+.site-card-nearby-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-card-nearby-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  padding: 0.18rem 0;
+  border-bottom: 1px solid rgba(159, 183, 178, 0.12);
+}
+
+.site-card-dist {
+  color: #8ea8a2;
+  white-space: nowrap;
+}
+
+.site-card-live {
+  margin: 0.45rem 0 0;
+  font-size: 0.68rem;
+  color: #9fb7b2;
 }
 
 .site-card-field {
@@ -9249,7 +9309,6 @@ body.scene-playback-mode #first-run-launcher {
   color: #9fb7b2;
 }
 
-.site-card-field select,
 .site-card-field textarea {
   width: 100%;
   border: 1px solid rgba(159, 183, 178, 0.35);
@@ -9257,40 +9316,11 @@ body.scene-playback-mode #first-run-launcher {
   color: #e7f7f3;
   padding: 0.4rem 0.45rem;
   font: inherit;
-}
-
-.site-card-scores {
-  margin: 0.4rem 0 0.7rem;
-  padding-top: 0.45rem;
-  border-top: 1px solid rgba(159, 183, 178, 0.2);
-}
-
-.site-card-section-title {
-  font-size: 0.68rem;
-  letter-spacing: 0.1em;
-  margin-bottom: 0.45rem;
-  color: rgba(61, 214, 198, 0.9);
-}
-
-.site-card-score-dim {
-  display: grid;
-  grid-template-columns: 7.5rem 1fr 1.4rem;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.28rem;
-  font-size: 0.7rem;
-  color: #b7cbc6;
-}
-
-.site-card-score-dim input[type="range"] {
-  width: 100%;
-  accent-color: #3dd6c6;
+  resize: vertical;
 }
 
 .site-card-attrs {
-  margin-top: 0.55rem;
-  border-top: 1px solid rgba(159, 183, 178, 0.2);
-  padding-top: 0.45rem;
+  margin-top: 0.35rem;
   font-size: 0.68rem;
 }
 
@@ -9304,23 +9334,28 @@ body.scene-playback-mode #first-run-launcher {
   margin: 0.45rem 0 0;
 }
 
-.site-card-attrs dl > div {
-  display: grid;
-  grid-template-columns: 7rem 1fr;
-  gap: 0.35rem;
-  margin-bottom: 0.25rem;
+.site-card-research .site-card-stubs {
+  list-style: none;
+  margin: 0 0 0.45rem;
+  padding: 0;
 }
 
-.site-card-attrs dt {
-  color: #7f9892;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.site-card-research .site-card-stubs li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.72rem;
 }
 
-.site-card-attrs dd {
-  margin: 0;
-  color: #d7ece8;
-  word-break: break-word;
+.site-card-research .site-card-stubs strong {
+  color: #cfe8e2;
+  letter-spacing: 0.04em;
+}
+
+.site-card-research .site-card-stubs span {
+  color: #8ea8a2;
+  line-height: 1.35;
 }
 
 @media (max-width: 720px) {

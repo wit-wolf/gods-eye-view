@@ -209,10 +209,11 @@ Property Genius was a local-first SA retail site-screening prototype (MapLibre +
 |---|---|
 | KMZ / KML / GeoJSON import (JSZip + `@tmcw/togeojson`) | **Ported** — Data Layers → **Sites** → **IMPORT**, or drop a file onto the page while Sites is on. Parse runs in a worker; Cesium entities stream in idle batches (cancellable). |
 | Cesium photoreal rendering (points + polygons, terrain-clamped) | **Ported** — replaces the MapLibre flat map / Google Earth workflow |
-| Clickable site card (name, Lead/Screening/Shortlisted/Rejected, notes, weighted scores, original KML attrs) | **Ported** — metadata in `localStorage`; imported GeoJSON in IndexedDB |
-| November Google Earth Pins demo | **Bundled** — enable **Sites**, then click **DEMO**. First paint is a Cape Town preview; the full gzipped set streams in afterward. Raw KMZ remains at `public/sites/November_Google_Earth_Pins.kmz` for import testing. |
-| Zoning GeoJSON overlay + intersection | **Deferred** — SA has no national zoning API; leave for a later PR |
-| SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** — stub only (`src/sites/competitors.stub.js`); do not port scrapers here |
+| Clickable **research brief** (name, KMZ attributes, nearby imported pins, notes) | **Ported** — no Genius 0–100 scores; metadata notes in `localStorage`; GeoJSON in IndexedDB |
+| November Google Earth Pins demo | **Bundled** — enable **Sites**, then click **DEMO**. First paint is a Cape Town preview; the full gzipped set streams afterward. |
+| Zoning GeoJSON overlay + intersection | **Deferred** — stub on the research card (“not wired yet”) |
+| SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** — stub on the research card; do not port scrapers |
+| PropertyCentral occupancy | **Deferred** — stub on the research card |
 | Azure SQL persistence | **Deferred** — this PR stays local-first |
 
 **Missing a layer you want?** Open an issue — or add it and send the PR.

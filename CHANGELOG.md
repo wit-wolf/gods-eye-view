@@ -8,10 +8,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ### Added
 
 - Absorbed Property Genius into this fork as the **Sites** data layer: KMZ/KML
-  import, Cesium globe rendering, clickable site cards (status + weighted
-  scores), local metadata persistence, and the November Google Earth Pins demo.
-  The MapLibre Property Genius app is no longer required to view those pins.
-  Zoning UI, retail competitor scrapers, and Azure persistence remain deferred.
+  import, Cesium globe rendering, a clickable **research brief** (KML fields +
+  nearby imported pins + notes — no Genius composite scores), local
+  persistence, and the November Google Earth Pins demo. The MapLibre Property
+  Genius app is no longer required to view those pins. Zoning UI, retail
+  scrapers, PropertyCentral, and Azure persistence remain deferred.
 
 ### Changed
 

@@ -22,8 +22,7 @@ import {
   processGeoJSON,
 } from './importKml.js';
 import { importFileInWorker } from './importWorkerBridge.js';
-import { normalizeSiteStatus } from './scoring.js';
-import { closeSiteCard, openSiteCard } from './siteCard.js';
+import { closeSiteCard, openSiteCard, SITES_PIN_COLOR } from './siteCard.js';
 import {
   DEMO_GEOJSON_GZ_URL,
   DEMO_KMZ_URL,
@@ -33,10 +32,8 @@ import {
   createLayerCatalogEntry,
   deleteLayerGeoJSON,
   ensureSiteMetadata,
-  getSiteMetadata,
   loadLayerCatalog,
   loadLayerGeoJSON,
-  loadSiteSettings,
   saveLayerCatalog,
   saveLayerGeoJSON,
 } from './siteStore.js';
@@ -53,12 +50,7 @@ export const SITES_FIRST_PAINT_CAP = 500;
 /** Entities created per idle batch after first paint. */
 export const SITES_PAINT_BATCH = 100;
 
-const STATUS_COLORS = {
-  lead: '#f0c14a',
-  screening: '#4ea1ff',
-  shortlisted: '#3dd68c',
-  rejected: '#ff5c5c',
-};
+const SITES_COLOR = SITES_PIN_COLOR;
 
 let _viewer = null;
 let _enabled = false;
@@ -97,10 +89,8 @@ function setBusy(status, error = null, progressLabel = '') {
   notifyRowControls();
 }
 
-function accentForUid(uid) {
-  const meta = getSiteMetadata(uid);
-  const status = normalizeSiteStatus(meta?.status);
-  return STATUS_COLORS[status] || STATUS_COLORS.lead;
+function accentForUid() {
+  return SITES_COLOR;
 }
 
 function makeLayerId(filename) {
@@ -195,8 +185,8 @@ function unwrapProperties(value) {
   return out;
 }
 
-function styleEntity(entity, uid) {
-  const color = Cesium.Color.fromCssColorString(accentForUid(uid));
+function styleEntity(entity) {
+  const color = Cesium.Color.fromCssColorString(SITES_COLOR);
   if (entity.polygon) {
     entity.polygon.material = color.withAlpha(0.28);
     entity.polygon.outline = true;
@@ -372,7 +362,7 @@ function addFeatureEntity(feature, index) {
 
   entity.__sitesLayerId = SITES_LAYER_ID;
   entity.__siteUid = uid;
-  styleEntity(entity, uid);
+  styleEntity(entity);
 
   const pos = featurePosition(entity);
   let latitude = null;
@@ -383,7 +373,7 @@ function addFeatureEntity(feature, index) {
     longitude = Number(Cesium.Math.toDegrees(carto.longitude).toFixed(6));
   }
 
-  _featureByUid.set(uid, { entity, props, name });
+  _featureByUid.set(uid, { entity, props, name, latitude, longitude });
   registerEntityContext(entity, {
     id: `${SITES_LAYER_ID}:${uid}`,
     layerId: SITES_LAYER_ID,
@@ -507,6 +497,19 @@ async function loadCachedOrPromptEmpty() {
   }
 }
 
+function listSiteSummaries() {
+  const out = [];
+  for (const [uid, record] of _featureByUid) {
+    out.push({
+      uid,
+      name: record.name,
+      latitude: record.latitude,
+      longitude: record.longitude,
+    });
+  }
+  return out;
+}
+
 function selectSiteEntity(entity) {
   if (!entity?.__siteUid) return;
   const uid = entity.__siteUid;
@@ -515,21 +518,29 @@ function selectSiteEntity(entity) {
     entity.properties?.getValue?.(Cesium.JulianDate.now()) || {},
   );
   const name = record?.name || props._name || 'Site';
+  let latitude = record?.latitude ?? null;
+  let longitude = record?.longitude ?? null;
+  const pos = featurePosition(entity);
+  if ((!Number.isFinite(latitude) || !Number.isFinite(longitude)) && pos) {
+    const carto = Cesium.Cartographic.fromCartesian(pos);
+    latitude = Number(Cesium.Math.toDegrees(carto.latitude).toFixed(6));
+    longitude = Number(Cesium.Math.toDegrees(carto.longitude).toFixed(6));
+  }
 
   _viewer.selectedEntity = entity;
   selectEntityContext(entity);
 
+  const layerEntry = _catalog.find((entry) => entry.id === (props._layerId || DEMO_LAYER_ID));
   openSiteCard({
     uid,
     name,
     properties: props,
-    onChange: () => {
-      styleEntity(entity, uid);
-      governorRequestRender('sites:restyle');
-    },
+    latitude,
+    longitude,
+    layerName: layerEntry?.name || DEMO_LAYER_NAME,
+    sites: listSiteSummaries(),
   });
 
-  const pos = featurePosition(entity);
   if (pos) {
     const carto = Cesium.Cartographic.fromCartesian(pos);
     _viewer.scene.screenSpaceCameraController.enableInputs = false;
@@ -825,7 +836,6 @@ const sitesLayer = {
   async update() {},
 
   getStats() {
-    const settings = loadSiteSettings();
     return {
       count: _count,
       totalPlanned: _totalPlanned,
@@ -836,7 +846,6 @@ const sitesLayer = {
       source: _progressLabel
         ? `Property Genius · ${_progressLabel}`
         : 'Property Genius · local',
-      scoringWeights: settings.scoring_weights,
     };
   },
 
@@ -891,10 +900,7 @@ const sitesLayer = {
     return {
       chips,
       legend: [
-        { color: STATUS_COLORS.lead, label: 'Lead', count: '' },
-        { color: STATUS_COLORS.screening, label: 'Screening', count: '' },
-        { color: STATUS_COLORS.shortlisted, label: 'Shortlisted', count: '' },
-        { color: STATUS_COLORS.rejected, label: 'Rejected', count: '' },
+        { color: SITES_COLOR, label: 'Sites', count: '' },
       ],
     };
   },

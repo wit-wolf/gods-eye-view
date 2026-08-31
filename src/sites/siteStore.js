@@ -1,14 +1,8 @@
 /**
- * Local persistence for Property Genius site metadata + imported layer catalog.
- * Metadata → localStorage. Large GeoJSON → IndexedDB (not Azure SQL for this PR).
+ * Local persistence for Sites metadata + imported layer catalog.
+ * Metadata → localStorage (notes-focused). GeoJSON → IndexedDB.
+ * Scoring weights are no longer used by the research card.
  */
-
-import {
-  DEFAULT_SCORING_WEIGHTS,
-  getDefaultScoreInputs,
-  normalizeScoreInputs,
-  normalizeSiteStatus,
-} from './scoring.js';
 
 export const SITE_METADATA_STORAGE_KEY = 'gev:sites:metadata:v1';
 export const SITE_LAYERS_STORAGE_KEY = 'gev:sites:layers:v1';
@@ -83,7 +77,8 @@ export function getSiteMetadata(uid) {
 }
 
 /**
- * Upsert one site metadata record (status, notes, scores).
+ * Upsert site notes / display name. Legacy score fields are preserved if present
+ * but are no longer written by the research card.
  * @param {string} uid
  * @param {object} patch
  * @returns {object}
@@ -93,17 +88,10 @@ export function upsertSiteMetadata(uid, patch = {}) {
   const existing = map[uid] || null;
   const createdAt = existing?.created_at || nowIso();
   const record = {
+    ...(existing || {}),
     feature_uid: uid,
     site_name: patch.site_name ?? existing?.site_name,
     notes: patch.notes ?? existing?.notes ?? '',
-    status: normalizeSiteStatus(patch.status ?? existing?.status ?? 'lead'),
-    category: patch.category ?? existing?.category ?? 'retail',
-    zoning_code: patch.zoning_code ?? existing?.zoning_code,
-    zoning_source: patch.zoning_source ?? existing?.zoning_source,
-    zoning_confidence: patch.zoning_confidence ?? existing?.zoning_confidence,
-    dev_score_inputs: normalizeScoreInputs(
-      patch.dev_score_inputs ?? existing?.dev_score_inputs ?? getDefaultScoreInputs(),
-    ),
     created_at: createdAt,
     updated_at: nowIso(),
   };
@@ -123,9 +111,7 @@ export function ensureSiteMetadata(uid, name) {
   if (existing) return existing;
   return upsertSiteMetadata(uid, {
     site_name: name,
-    status: 'lead',
     notes: '',
-    dev_score_inputs: getDefaultScoreInputs(),
   });
 }
 
@@ -145,23 +131,17 @@ export function saveLayerCatalog(layers) {
 }
 
 /**
- * @returns {{scoring_weights: object}}
+ * @returns {object}
  */
 export function loadSiteSettings() {
-  const raw = readJson(SITE_SETTINGS_STORAGE_KEY, null);
-  return {
-    scoring_weights: {
-      ...DEFAULT_SCORING_WEIGHTS,
-      ...(raw?.scoring_weights || {}),
-    },
-  };
+  return readJson(SITE_SETTINGS_STORAGE_KEY, {}) || {};
 }
 
 /**
  * @param {object} settings
  */
 export function saveSiteSettings(settings) {
-  return writeJson(SITE_SETTINGS_STORAGE_KEY, settings || { scoring_weights: DEFAULT_SCORING_WEIGHTS });
+  return writeJson(SITE_SETTINGS_STORAGE_KEY, settings || {});
 }
 
 function openIdb() {
@@ -182,7 +162,6 @@ function openIdb() {
 }
 
 /**
- * Persist a FeatureCollection for an imported layer.
  * @param {string} layerId
  * @param {GeoJSON.FeatureCollection} geojson
  */
@@ -236,7 +215,6 @@ export async function deleteLayerGeoJSON(layerId) {
 }
 
 /**
- * Build a catalog entry for a newly imported file.
  * @param {object} options
  * @returns {object}
  */
