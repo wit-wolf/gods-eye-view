@@ -591,7 +591,7 @@ export class LayerStateCoordinator {
       // unrelated recipient's saved local layer preferences.
       this._source = 'legacy-share';
     }
-    this._durableState = selected || createDefaultLayerState();
+    this._durableState = this._pruneToRegisteredLayers(selected || createDefaultLayerState());
     this.shareLinkManager?.setLayerStateProvider?.(() => this.getDurableState());
     this.shareLinkManager?.onLayerStateChange?.();
     this._notifyDurableState();
@@ -600,6 +600,18 @@ export class LayerStateCoordinator {
       this._source === 'share' ? LAYER_RESTORE_ORIGINS.share : LAYER_RESTORE_ORIGINS.local,
     );
     return this.restorePromise;
+  }
+
+  /**
+   * Drop enabled ids / pending restores for layers the live manager never
+   * registered (product profile cut). Keeps share + localStorage from
+   * resurrecting aircraft/ships/etc. on a property-globe build.
+   */
+  _pruneToRegisteredLayers(state) {
+    const registered = this.dataManager?.layers;
+    if (!registered?.has) return normalizeLayerState(state);
+    const enabledLayerIds = (state?.enabledLayerIds || []).filter((id) => registered.has(id));
+    return normalizeLayerState({ ...state, enabledLayerIds });
   }
 
   get source() {
@@ -728,13 +740,16 @@ export class LayerStateCoordinator {
   }
 
   async _restoreSelectedState(origin) {
-    for (const entry of LAYER_STATE_REGISTRY) {
+    // Only restore layers the manager actually registered. Product profiles may
+    // omit OSINT feeds while the share-token catalog still lists them.
+    const registry = LAYER_STATE_REGISTRY.filter((entry) => this.dataManager.layers.has(entry.id));
+    for (const entry of registry) {
       this._restoreControllers.set(entry.id, new AbortController());
     }
     try {
       await this._waitForRestoreGate();
       const enabled = new Set(this._durableState.enabledLayerIds);
-      const settled = await Promise.allSettled(LAYER_STATE_REGISTRY.map(async (entry) => {
+      const settled = await Promise.allSettled(registry.map(async (entry) => {
         const controller = this._restoreControllers.get(entry.id);
         const targetEnabled = enabled.has(entry.id);
         const options = layerOptionsForRestore(this._durableState, entry.id);
@@ -774,7 +789,7 @@ export class LayerStateCoordinator {
       }));
       this.lastRestoreResults = settled.map((result, index) => {
         if (result.status === 'fulfilled') return result.value;
-        const entry = LAYER_STATE_REGISTRY[index];
+        const entry = registry[index];
         return {
           layerId: entry.id,
           targetEnabled: enabled.has(entry.id),

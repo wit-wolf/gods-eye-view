@@ -1,3 +1,11 @@
+/* Product surface cuts (Volee property globe) — keep markup for re-enable. */
+body.product-volee .product-surface-cut,
+body.product-volee #cctv-panel.product-surface-cut,
+body.product-volee #radio-panel.product-surface-cut,
+body.product-volee #global-context-panel.product-surface-cut {
+  display: none !important;
+}
+
 /* ═══════════════════════════════════════════════
    GOD'S EYE VIEW — Dark Sci-Fi UI
    Apple meets Blade Runner

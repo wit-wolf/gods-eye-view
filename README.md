@@ -2,9 +2,9 @@
 
 # 🌐 Volee
 
-### A spy-satellite simulator in your browser — then you realize the sources are public and the data is real.
+### A photoreal property globe — Sites, weather, and fires on Google 3D Tiles.
 
-**Volee** is this fork’s product name for the live photoreal globe. The repository remains [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (*God's Eye View*). Live aircraft, ships, satellites, earthquakes, traffic, and public cameras, with clearly labeled modeled views where a live feed is unavailable. Hands-free voice control powered by a realtime AI agent. Property Genius site screening is absorbed as the **Sites** layer.
+**Volee** is this fork’s product name for a **property / tenant-rep** globe. The repository remains [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (*God's Eye View*). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: Google Photorealistic 3D Tiles, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
 
 *No place left behind.*
 
@@ -30,13 +30,13 @@
 
 ## 🌍 Why This Exists
 
-**You asked, so it's happening.** Volee runs on the open God's Eye View foundation. Track the world live. Talk to it. Break it. Extend it.
+**Volee turns the open God's Eye View foundation into a property tool.** Site pins, fires, traffic, and a photoreal Earth — not an OSINT spy console.
 
-Most open-source intelligence is a pile of browser tabs. The signals are abundant, but the *interface* is the bottleneck. Volee turns those signals into a **place**: the world is already broadcasting — flight transponders, ship beacons, orbital elements, seismographs, public cameras — and this makes it visible on a photorealistic 3D Earth in real time. No classified clearance required; it's public signal all the way down, and the interface runs in your browser, under your control.
+The upstream project fused public signals into a browser globe. This fork keeps that globe and the Sites workflow, and **cuts** aircraft / AIS / satellites / CCTV / voice / radio from the product surface (see `src/productProfile.js`) so they never register, never poll, and never show controls. Flip the profile later if you need those feeds back; the modules and Vite proxies remain.
 
-> Half the magic is that it looks like a forbidden cockpit. The other half is that every line of code is inspectable.
+> Photoreal sites on one globe. Weather and fires when the work needs them. No TOP SECRET theatre.
 
-The live layers are grounded in public feeds: the airliner crossing your screen is reporting telemetry, the camera is installed at a published location, and the ISS position is propagated from current orbital elements. The client deliberately renders flights one polling interval behind real time so it can interpolate smoothly. Some experiences are modeled rather than live: keyless traffic is labeled as a simulation, camera poses are estimated until calibrated, and launch ascent playback is marked `RECONSTRUCTED ESTIMATE`. Each layer keeps its source and freshness state visible, including partial, delayed, simulated, and unavailable states.
+Kept layers report source and freshness honestly — including partial, delayed, simulated, and unavailable states. No fake PropertyCentral, competitors, or zoning data.
 
 ---
 
@@ -46,22 +46,18 @@ The live layers are grounded in public feeds: the airliner crossing your screen 
 
 [![YouTube video about the God's Eye View open source release](https://img.youtube.com/vi/GRJaKcXZS94/maxresdefault.jpg)](https://www.youtube.com/watch?v=GRJaKcXZS94)
 
-▶️ **[The full walkthrough of everything below, on YouTube](https://www.youtube.com/watch?v=GRJaKcXZS94)**
+▶️ **[Upstream walkthrough of the God's Eye View foundation](https://www.youtube.com/watch?v=GRJaKcXZS94)**
 
 </div>
 
-- **🛩️ Cockpit view:** Ride inside a tracked flight — the camera holds the terrain under you all the way down.
-- **📡 Contacts:** A 250 km roster of everything near your target — step through live aircraft and drop into any cockpit.
-- **🎯 Click-to-track anything:** Camera locks on, draws a fading trail, surfaces full metadata — and a tracked fire or vessel hands you off to the nearest live camera in one click.
-- **🖊️ Voice whiteboard:** Speak annotations onto the world — real boundary polygons, marks, and routes.
-- **🛫 3D hangar:** Real per-class aircraft models — 787, ATR-72, Citation, Bell 206, MQ-9 — and a tracked contact swaps from glyph to 3D model as you close in.
-- **🎨 Reskin reality:** GLSL sensor looks over the normal globe — CRT, NVG, FLIR/thermal, Noir, Snow.
-- **🟩 Detection overlay:** Screen-space bounding boxes and IDs on everything in view.
-- **🎖️ Military HUD:** Tactical heads-up display with intelligence-style telemetry.
-- **🌐 Global Context:** Stage the full situational picture with one switch — and get your exact view back when you leave.
-- **🎥 Scene director:** Capture cinematic camera tours for clips and demos.
-- **🔗 Share Links:** Camera, style, layers, and even one tracked target serialize into a URL — a live target is a handoff, not a bookmark.
-- **🏠 Reset Globe:** One control — or one sentence — back to the full Earth.
+- **📍 Sites:** KMZ/KML import, November demo pins, clickable research brief (KML fields + nearby pins + notes — no Genius scores).
+- **🌐 Photoreal globe:** Google Photorealistic 3D Tiles with South Africa city fly-tos (Cape Town home).
+- **🔥 Fires & quakes:** NASA FIRMS active fires and USGS earthquakes for environmental context on site work.
+- **🚗 Traffic / roads:** TomTom/OSM road flow when configured (not CCTV).
+- **🌤 Weather:** Local weather readouts / cockpit WX where the globe already surfaces them.
+- **🔗 Share Links:** Camera and enabled layers serialize into a URL.
+
+**Cut from this product (HUD + runtime):** aircraft, military air, ships/AIS, satellites, rocket launches, CCTV, radio, voice/MIC, Detection overlay, and stacked intel looks (CRT / NVG / FLIR / Noir / Snow). Re-enable via `src/productProfile.js`.
 
 ---
 

@@ -97,6 +97,11 @@ export const FIRST_RUN_MISSIONS = Object.freeze({
     contextMode: 'space-missions',
     busyText: 'Opening space missions…',
   }),
+  sites: Object.freeze({
+    kind: 'globe',
+    layerIds: Object.freeze(['sites']),
+    busyText: 'Opening Sites…',
+  }),
   environmental: Object.freeze({
     kind: 'globe',
     // Live USGS earthquakes AND NASA FIRMS active fires. The launcher optimizes

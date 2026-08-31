@@ -28,7 +28,10 @@ import {
 import { renderMapStackChips, syncMapStackChips } from './mapStackChips.js';
 import { OrbitController } from './orbit.js';
 import {
-  CelestialRing,
+  isProductFeatureEnabled,
+  PRODUCT_PROFILE,
+} from './productProfile.js';
+import {  CelestialRing,
   getKeyholeFadeTuning,
   isCelestialRingStyleSupported,
   setKeyholeFadeTuning,
@@ -2605,13 +2608,16 @@ export class StyleManager {
     initWorldOverlay(viewer);
 
     // Initialize detection overlay BEFORE style stages so the composite
-    // stage is first in the post-process pipeline
-    initDetection(viewer, [trafficLayer, flightsLayer, militaryFlightsLayer, satellitesLayer, cctvLayer, bikeshareLayer, aisLiveVesselsLayer], (modeLabel) => {
-      this._updateDetectionButton(modeLabel);
-    });
+    // stage is first in the post-process pipeline. Skipped on the Volee
+    // property profile — no aircraft/CCTV detection theatre.
+    if (isProductFeatureEnabled('detection')) {
+      initDetection(viewer, [trafficLayer, flightsLayer, militaryFlightsLayer, satellitesLayer, cctvLayer, bikeshareLayer, aisLiveVesselsLayer], (modeLabel) => {
+        this._updateDetectionButton(modeLabel);
+      });
+      setDetectionStyle(this.activeStyle);
+      this._applyDetectionDensityFromUi();
+    }
     initTrackedReadout(viewer);
-    setDetectionStyle(this.activeStyle);
-    this._applyDetectionDensityFromUi();
 
     this._initStages();
     this._initBloomSharpen();
@@ -3323,9 +3329,17 @@ export class StyleManager {
    * @returns {void}
    */
   _initUI() {
-    // Style buttons
+    // Style buttons — cut intel looks stay in the DOM for re-enable, but clicks
+    // on hidden buttons must not apply those shaders.
     document.querySelectorAll('.style-btn').forEach(btn => {
-      btn.addEventListener('click', () => this.setStyle(btn.dataset.style));
+      btn.addEventListener('click', () => {
+        const style = btn.dataset.style;
+        if (
+          !isProductFeatureEnabled('militaryVisualStyles')
+          && PRODUCT_PROFILE.cutVisualStyles.includes(style)
+        ) return;
+        this.setStyle(style);
+      });
     });
 
     // Keyboard shortcuts: 1-7, H, Escape
@@ -3343,7 +3357,14 @@ export class StyleManager {
         '4': 'thermal', '5': 'anime', '6': 'noir',
         '7': 'snow',
       };
-      if (keyMap[e.key]) this.setStyle(keyMap[e.key]);
+      if (keyMap[e.key]) {
+        const style = keyMap[e.key];
+        if (
+          !isProductFeatureEnabled('militaryVisualStyles')
+          && PRODUCT_PROFILE.cutVisualStyles.includes(style)
+        ) return;
+        this.setStyle(style);
+      }
       if (e.key === 'Escape') {
         if (this._locationSearch.classList.contains('expanded')) {
           this._locationSearch.classList.remove('expanded');
@@ -3363,12 +3384,14 @@ export class StyleManager {
         document.getElementById('data-panel').classList.toggle('active');
       }
       if (e.key.toLowerCase() === 'd') {
+        if (!isProductFeatureEnabled('detection')) return;
         this.shareLinkManager?.claimRestoreLane?.('visual');
         this._detectionUserOverridden = true;
         cycleDetectionMode();
         this._syncShareState();
       }
       if (e.key.toLowerCase() === 'c') {
+        if (!isProductFeatureEnabled('cctv')) return;
         this._toggleCctvEnabled();
       }
     };
@@ -5285,6 +5308,7 @@ export class StyleManager {
 
   /** Wire the independent Radio companion controls. */
   _initRadioPanel() {
+    if (!isProductFeatureEnabled('radio')) return;
     if (!this._radioPanel) return;
     this._radioTunerAbort?.abort();
     this._radioTunerAbort = new AbortController();
@@ -6109,6 +6133,7 @@ export class StyleManager {
    * @returns {void}
    */
   _initCctvPanel() {
+    if (!isProductFeatureEnabled('cctv')) return;
     if (!this._cctvPanel) return;
 
     this._cctvEnableBtn?.addEventListener('click', async () => {
@@ -9817,6 +9842,7 @@ export class StyleManager {
   }
 
   _initModels3dToggle() {
+    if (!isProductFeatureEnabled('models3d')) return;
     if (!this._models3dBtn) return;
     // The Proximity/All mode row is revealed only while 3D is on (mirrors the DETECT slider row).
     const syncModeRow = () => {
@@ -9883,7 +9909,8 @@ export class StyleManager {
     this._updateHudButtonState();
 
     // Detection toggle button
-    this._detectionBtn.addEventListener('click', () => {
+    this._detectionBtn?.addEventListener('click', () => {
+      if (!isProductFeatureEnabled('detection')) return;
       this.shareLinkManager?.claimRestoreLane?.('visual');
       this._detectionUserOverridden = true;
       cycleDetectionMode();

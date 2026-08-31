@@ -34,8 +34,35 @@ import {
 } from './renderGovernor.js';
 import { installScopeMask } from './scopeMask.js';
 import { initFirstRunExperience } from './firstRunExperience.js';
+import {
+  applyProductChrome,
+  filterLayerStateRegistryForProduct,
+  isProductFeatureEnabled,
+  isProductLayerEnabled,
+} from './productProfile.js';
 
 initLogoGaze();
+applyProductChrome();
+
+/** Full module catalog — product profile decides which ids register at boot. */
+const LAYER_MODULES_BY_ID = Object.freeze({
+  flights: flightsLayer,
+  military: militaryFlightsLayer,
+  earthquakes: earthquakesLayer,
+  satellites: satellitesLayer,
+  'rocket-launches': rocketLaunchesLayer,
+  traffic: trafficLayer,
+  cctv: cctvLayer,
+  radio: radioLayer,
+  bikeshare: bikeshareLayer,
+  'ais-live-vessels': aisLiveVesselsLayer,
+  'military-installations': militaryInstallationsLayer,
+  'military-awareness': militaryAwarenessLayer,
+  sites: sitesLayer,
+  ...Object.fromEntries(localDataLayers.map((layer) => [layer.id, layer])),
+});
+
+const PRODUCT_LAYER_STATE_REGISTRY = filterLayerStateRegistryForProduct(LAYER_STATE_REGISTRY);
 
 /**
  * Extract a human-readable error message from any thrown value.
@@ -209,30 +236,26 @@ async function init() {
       loaderStatus.textContent = 'Restoring shared view...';
     }
 
-    // Initialize data layer manager
+    // Initialize data layer manager — only product-enabled layers register, so
+    // cut OSINT feeds never start timers or hit network/paid keys.
     const dataManager = new DataLayerManager(viewer, {
       allowQaRegistration: import.meta.env.DEV,
     });
-    dataManager.register(flightsLayer);
-    dataManager.register(militaryFlightsLayer);
-    dataManager.register(earthquakesLayer);
-    dataManager.register(satellitesLayer);
-    dataManager.register(rocketLaunchesLayer);
-    rocketLaunchesLayer.attachDataManager(dataManager);
-    dataManager.register(trafficLayer);
-    dataManager.register(cctvLayer);
-    dataManager.register(radioLayer);
-    dataManager.register(bikeshareLayer);
-    dataManager.register(aisLiveVesselsLayer);
-    dataManager.register(militaryInstallationsLayer);
-    dataManager.register(militaryAwarenessLayer);
-    militaryAwarenessLayer.attachDataManager(dataManager);
-    for (const layer of localDataLayers) {
+    for (const entry of PRODUCT_LAYER_STATE_REGISTRY) {
+      const layer = LAYER_MODULES_BY_ID[entry.id];
+      if (!layer) {
+        throw new Error(`Product layer module missing for registry id: ${entry.id}`);
+      }
       dataManager.register(layer);
     }
-    dataManager.register(sitesLayer);
-    // Restoration starts only after the complete production registry is sealed.
-    dataManager.finalizeRegistrations(LAYER_STATE_REGISTRY);
+    if (isProductLayerEnabled('rocket-launches')) {
+      rocketLaunchesLayer.attachDataManager(dataManager);
+    }
+    if (isProductLayerEnabled('military-awareness')) {
+      militaryAwarenessLayer.attachDataManager(dataManager);
+    }
+    // Restoration starts only after the product registry is sealed.
+    dataManager.finalizeRegistrations(PRODUCT_LAYER_STATE_REGISTRY);
     if (import.meta.env.DEV) {
       window.__gevQaRegisterLayer = (targetManager, layerModule) => {
         if (targetManager !== dataManager) throw new Error('QA layer manager mismatch');
@@ -328,7 +351,13 @@ async function init() {
       getRenderGovernorDiagnostics,
       requestRender: governorRequestRender,
     };
-    window.__godsEyeView.voiceCommands = initGevVoiceCommands({ viewer, styleManager, dataManager, sceneDirector, annotations });
+    if (isProductFeatureEnabled('voice')) {
+      window.__godsEyeView.voiceCommands = initGevVoiceCommands({
+        viewer, styleManager, dataManager, sceneDirector, annotations,
+      });
+    } else {
+      window.__godsEyeView.voiceCommands = null;
+    }
 
   } catch (error) {
     console.error('Volee initialization failed:', error);

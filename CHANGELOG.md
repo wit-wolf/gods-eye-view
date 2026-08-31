@@ -13,15 +13,23 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   persistence, and the November Google Earth Pins demo. The MapLibre Property
   Genius app is no longer required to view those pins. Zoning UI, retail
   scrapers, PropertyCentral, and Azure persistence remain deferred.
+- **Volee product profile** (`src/productProfile.js`): property-globe surface
+  that registers only Sites, traffic, FIRMS fires, earthquakes, and local
+  infrastructure layers. Aircraft, AIS, satellites, CCTV, radio, and voice stay
+  in-tree but do not register, start, or appear in the HUD.
 
 ### Changed
 
 - Product chrome on this fork is branded **Volee** (window title, header,
-  first-run / Mission Control, loading screen, README). The GitHub repository
-  name stays `wit-wolf/gods-eye-view`. Sites/KMZ import is progressive and
-  cancellable so large demos no longer freeze the tab. Duplicate Cesium entity
-  ids (preview→full stream / double DEMO) are skipped instead of marking the
-  layer UNAVAILABLE.
+  first-run / property globe launcher, loading screen, README). The GitHub
+  repository name stays `wit-wolf/gods-eye-view`. Sites/KMZ import is progressive
+  and cancellable so large demos no longer freeze the tab. Duplicate Cesium
+  entity ids (preview→full stream / double DEMO) are skipped instead of marking
+  the layer UNAVAILABLE.
+- First-run missions are **Sites**, **Environmental** (quakes + FIRMS), and
+  **Explore**. Spy chrome (TOP SECRET banners, MIC tip, Detection, CRT/NVG/
+  FLIR/Noir/Snow) is hidden on the property profile; weather/fire presentation
+  remains via kept layers.
 
 ## [Unreleased] — 2026-08-24
 
