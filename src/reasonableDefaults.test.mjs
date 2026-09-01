@@ -243,7 +243,7 @@ test('detection-on-by-default is a default, not an operator override', () => {
   // preset consults the flag, and the detection button sets it.
   assert.match(uiSource, /if \(preset\.detection && !this\._detectionUserOverridden\) \{/,
     'a style preset still yields to an operator who changed detection by hand');
-  const detectionButton = uiBlock("this._detectionBtn.addEventListener('click'", 'cycleDetectionMode()');
+  const detectionButton = uiBlock("this._detectionBtn?.addEventListener('click'", 'cycleDetectionMode()');
   assert.match(detectionButton, /this\._detectionUserOverridden = true;/,
     'and the detection control still claims the override when the operator uses it');
 

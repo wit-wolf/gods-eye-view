@@ -1,20 +1,20 @@
 <div align="center">
 
-# 🌐 Volee
+# 🌐 Eagle Eye by Volee
 
 ### A photoreal property globe — Sites, weather, and fires on Google 3D Tiles.
 
-**Volee** is this fork’s product name for a **property / tenant-rep** globe. The repository remains [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (*God's Eye View*). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: Google Photorealistic 3D Tiles, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
+**Eagle Eye** is the product line; **Volee** is the company. This fork’s property / tenant-rep globe lives in [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (upstream *God's Eye View*; repo slug unchanged). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: Google Photorealistic 3D Tiles, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
 
 *No place left behind.*
 
 ![Orbital HUD, a tracked live globe, FLIR terrain — then OPEN SOURCED](docs/media/hero-open-source-reveal.gif)
 
 <a href="https://www.youtube.com/@bilawalsidhu">
-  <img src="docs/media/youtube-popular-videos.png" alt="The God's Eye View video series on YouTube" width="100%">
+  <img src="docs/media/youtube-popular-videos.png" alt="Upstream God's Eye View video series on YouTube" width="100%">
 </a>
 
-▶️ **Built on the project behind the viral God's Eye View series** *(formerly WorldView)* — [5M+ on YouTube](https://youtube.com/playlist?list=PL6qSg2I-7_koPbDnSMo0QeeHX_RknA2uv&si=nBGYMoHWQw41v93Q)
+▶️ **Built on the open foundation behind the viral God's Eye View series** *(formerly WorldView)* — [5M+ on YouTube](https://youtube.com/playlist?list=PL6qSg2I-7_koPbDnSMo0QeeHX_RknA2uv&si=nBGYMoHWQw41v93Q)
 
 </div>
 
@@ -30,7 +30,7 @@
 
 ## 🌍 Why This Exists
 
-**Volee turns the open God's Eye View foundation into a property tool.** Site pins, fires, traffic, and a photoreal Earth — not an OSINT spy console.
+**Eagle Eye by Volee** turns the open God's Eye View foundation into a property tool. Site pins, fires, traffic, and a photoreal Earth — not an OSINT spy console.
 
 The upstream project fused public signals into a browser globe. This fork keeps that globe and the Sites workflow, and **cuts** aircraft / AIS / satellites / CCTV / voice / radio from the product surface (see `src/productProfile.js`) so they never register, never poll, and never show controls. Flip the profile later if you need those feeds back; the modules and Vite proxies remain.
 
@@ -69,7 +69,7 @@ Kept layers report source and freshness honestly — including partial, delayed,
 
 Requires Node.js 24.14.x or 26.x (enforced by `package.json`).
 
-**This product is Volee** on fork [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view): South Africa city pack (`config/city_pack.za.json`), first-run fly-to **Cape Town**, and **Property Genius** absorbed as the **Sites** data layer. The MapLibre Property Genius app is not required to view those pins. Upstream God's Eye View cities remain available in the location bar.
+**This product is Eagle Eye by Volee** on fork [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view): South Africa city pack (`config/city_pack.za.json`), first-run fly-to **Cape Town**, and **Property Genius** absorbed as the **Sites** data layer. The MapLibre Property Genius app is not required to view those pins. Upstream God's Eye View cities remain available in the location bar.
 
 1. Copy `.env.example` → `.env` and set `GOOGLE_MAPS_API_KEY`.
 2. Install and run:

@@ -164,6 +164,7 @@ test('a DPR change with no resize still repaints the backing store', () => {
   const dom = stubScopeMaskDom({ width: 1000, height: 800, dpr: 1 });
   try {
     installScopeMask({ container: dom.container });
+    setScopeMaskEnabled(true);
     // 1x monitor: backing store matches CSS pixels.
     assert.equal(dom.canvas.width, 1000);
     assert.equal(dom.canvas.height, 800);
@@ -188,6 +189,7 @@ test('destroy tears the DPR watch down (no redraw after teardown)', () => {
   const dom = stubScopeMaskDom({ width: 640, height: 480, dpr: 1 });
   try {
     installScopeMask({ container: dom.container });
+    setScopeMaskEnabled(true);
     assert.equal(dom.canvas.width, 640);
     destroyScopeMask();
     dom.setDpr(2);
@@ -264,6 +266,7 @@ test('repaint gate: only a QUANTIZED step repaints; hovering costs nothing', () 
   const dom = stubScopeMaskDom({ width: 1000, height: 800, dpr: 1 });
   try {
     installScopeMask({ container: dom.container });
+    setScopeMaskEnabled(true);
     const base = getScopeTerminusRepaintCount();
 
     // Parked at true full-globe altitude: the seeded alpha already matches, so
@@ -294,6 +297,7 @@ test('a full zoom-in gesture costs only a handful of repaints', () => {
   const dom = stubScopeMaskDom({ width: 1000, height: 800, dpr: 1 });
   try {
     installScopeMask({ container: dom.container });
+    setScopeMaskEnabled(true);
     const base = getScopeTerminusRepaintCount();
 
     // 20 Mm → ground in 10 km steps: ~2000 samples across the whole descent,
@@ -316,6 +320,7 @@ test('an override pins the terminus and null restores the ramp', () => {
   const dom = stubScopeMaskDom({ width: 1000, height: 800, dpr: 1 });
   try {
     installScopeMask({ container: dom.container });
+    setScopeMaskEnabled(true);
     setScopeTerminusOverride(0.97);
     assert.equal(getScopeTerminusOverride(), 0.97);
     assert.equal(getScopeTerminusAlpha(), 0.97);
@@ -338,6 +343,7 @@ test('the hard-crop (feather 0) path honors the same terminus alpha', () => {
   const dom = stubScopeMaskDom({ width: 1000, height: 800, dpr: 1 });
   try {
     installScopeMask({ container: dom.container });
+    setScopeMaskEnabled(true);
     updateScopeTerminusForHeight(SCOPE_TERMINUS_FAR_M + 5_000_000); // true full-globe view
     setScopeMaskFeather(0); // hard crop — the evenodd rect-minus-circle path
     // The globe-scale seed paint is legitimately in the history, so assert on
@@ -395,6 +401,8 @@ test('a disabled scope does no canvas work and samples no camera heights', () =>
   const rig = stubScopeViewer(dom.container, 14_000_000); // true full-globe view
   try {
     installScopeMask(rig.viewer);
+    // Property default is OFF — turn ON first so the disable transition is real.
+    setScopeMaskEnabled(true);
     assert.equal(getScopeTerminusAlpha(), SCOPE_OUTSIDE_ALPHA);
 
     // The transition must clear the painted mask EXACTLY once, and must not
@@ -439,6 +447,7 @@ test('a DPR change that also crosses a terminus step paints once, not twice', ()
   const rig = stubScopeViewer(dom.container, SCOPE_TERMINUS_FAR_M);
   try {
     installScopeMask(rig.viewer);
+    setScopeMaskEnabled(true);
     assert.equal(getScopeTerminusAlpha(), SCOPE_OUTSIDE_ALPHA);
 
     // Descend into the band WITHOUT a frame, then drag the window to a 2x

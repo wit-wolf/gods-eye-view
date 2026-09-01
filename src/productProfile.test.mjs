@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import {
+  PRODUCT_BRANDING,
   PRODUCT_PROFILE,
   VOLEE_CUT_LAYER_IDS,
   VOLEE_ENABLED_LAYER_IDS,
@@ -13,8 +14,25 @@ import {
   isProductLayerEnabled,
 } from './productProfile.js';
 import { LAYER_STATE_REGISTRY } from './data/layerState.js';
+import { SCOPE_ENABLED_DEFAULT, isScopeMaskEnabled } from './scopeMask.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('Eagle Eye by Volee branding is centralized', () => {
+  assert.equal(PRODUCT_BRANDING.productName, 'Eagle Eye by Volee');
+  assert.equal(PRODUCT_BRANDING.company, 'Volee');
+  assert.equal(PRODUCT_BRANDING.productLine, 'Eagle Eye');
+  assert.equal(PRODUCT_PROFILE.branding.productName, 'Eagle Eye by Volee');
+  assert.equal(PRODUCT_BRANDING.scopeEnabledByDefault, false);
+  assert.equal(SCOPE_ENABLED_DEFAULT, false);
+  assert.equal(isScopeMaskEnabled(), false);
+  const html = readFileSync(join(root, 'index.html'), 'utf8');
+  assert.match(html, /<title>Eagle Eye by Volee<\/title>/);
+  assert.match(html, /EAGLE EYE/);
+  assert.doesNotMatch(html, /God'?s Eye View/);
+  assert.doesNotMatch(html, /TOP SECRET/);
+  assert.match(html, /id="scope-toggle"[^>]*aria-pressed="false"/);
+});
 
 test('Volee profile keeps Sites/traffic/fires and cuts OSINT feeds', () => {
   assert.equal(PRODUCT_PROFILE.id, 'volee');
@@ -97,6 +115,7 @@ test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
   };
 
   const doc = {
+    title: 'Volee',
     body,
     getElementById(id) {
       if (id === 'first-run-launcher') return launcher;
@@ -143,9 +162,10 @@ test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
   assert.equal(elements.get('cctv-panel').hidden, true);
   assert.equal(elements.get('radio-panel').hidden, true);
   assert.equal(elements.get('detection-toggle').hidden, true);
-  assert.equal(elements.get('kicker').textContent, 'VOLEE · PROPERTY GLOBE');
+  assert.equal(elements.get('kicker').textContent, 'EAGLE EYE · BY VOLEE');
   assert.match(elements.get('desc').textContent, /property/i);
   assert.doesNotMatch(elements.get('tip').textContent, /MIC button/i);
+  assert.equal(doc.title, 'Eagle Eye by Volee');
   assert.equal(elements.get('contacts').hidden, true);
   assert.ok(elements.get('choices')._inserted?.node?.dataset?.firstRunChoice === 'sites'
     || elements.get('choices')._inserted?.node);

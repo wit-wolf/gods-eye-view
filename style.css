@@ -7,8 +7,8 @@ body.product-volee #global-context-panel.product-surface-cut {
 }
 
 /* ═══════════════════════════════════════════════
-   GOD'S EYE VIEW — Dark Sci-Fi UI
-   Apple meets Blade Runner
+   EAGLE EYE BY VOLEE — Property globe UI
+   (fork of God's Eye View; repo slug unchanged)
    ═══════════════════════════════════════════════ */
 
 :root {
@@ -9220,9 +9220,10 @@ body.scene-playback-mode #first-run-launcher {
 .site-card-panel {
   position: fixed;
   top: 5.5rem;
-  right: 1.1rem;
-  z-index: 40;
-  width: min(24rem, calc(100vw - 2rem));
+  /* Sit left of the collapsed DISPLAY strip so the brief is never under it. */
+  right: calc(var(--right-rail-x) + var(--right-collapsed-width, 132px) + 12px);
+  z-index: 120;
+  width: min(24rem, calc(100vw - 2rem - var(--right-rail-x) - var(--right-collapsed-width, 132px)));
   max-height: calc(100vh - 7rem);
   overflow: auto;
   padding: 0.9rem 1rem 1.1rem;

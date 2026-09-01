@@ -19,7 +19,7 @@ import { CITY_POIS } from './locations.js';
 import { composeLocalityTag } from './hudLocality.js';
 import { ellipsoidalToMslDisplayM, ensureGeoidReady, geoidHeight } from './data/geoid.js';
 import { getBasemapLabelContext } from './voice/gevActions.js';
-import { isProductFeatureEnabled } from './productProfile.js';
+import { isProductFeatureEnabled, PRODUCT_BRANDING } from './productProfile.js';
 
 /** Color palettes keyed by shader mode; applied as CSS custom properties. */
 const HUD_COLORS = {
@@ -146,11 +146,12 @@ export class IntelHUD {
     this._el = document.getElementById('intel-hud');
     if (!this._el) return;
 
+    const brand = PRODUCT_BRANDING;
     const classification = this._propertyPresentation
-      ? 'VOLEE · PROPERTY'
+      ? brand.hudClassification
       : 'TOP SECRET // SI-TK // NOFORN';
     const systemLine = this._propertyPresentation
-      ? 'VOLEE  SITE VIEW'
+      ? brand.hudSystemLine
       : `${this._missionId}  ${this._sensorId}`;
     const orbitalLine = this._propertyPresentation
       ? 'GLOBE VIEW'
@@ -174,8 +175,8 @@ export class IntelHUD {
     this._el.innerHTML = `
       <div class="hud-top-bar">
         <span class="hud-top-bar-left">${classification}</span>
-        <span class="hud-top-bar-center">${this._propertyPresentation ? 'VOLEE' : this._missionId}</span>
-        <span class="hud-top-bar-right">${this._propertyPresentation ? 'SITE' : 'PAGE 1/1'}</span>
+        <span class="hud-top-bar-center">${this._propertyPresentation ? brand.hudTopCenter : this._missionId}</span>
+        <span class="hud-top-bar-right">${this._propertyPresentation ? brand.hudTopRight : 'PAGE 1/1'}</span>
       </div>
 
       <div class="hud-corner hud-top-left">

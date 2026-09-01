@@ -122,6 +122,8 @@ export function openSiteCard({
   const competitors = getCompetitorLayerStub();
 
   panel.hidden = false;
+  document.body?.classList.add('site-card-open');
+  emitSiteCardOpenChange(true);
   panel.innerHTML = `
     <div class="site-card-header">
       <div class="site-card-kicker">SITES · RESEARCH BRIEF</div>
@@ -203,8 +205,17 @@ export function closeSiteCard() {
     panel.hidden = true;
     panel.innerHTML = '';
   }
+  document.body?.classList.remove('site-card-open');
+  emitSiteCardOpenChange(false);
   _currentUid = null;
   _currentProps = null;
+}
+
+function emitSiteCardOpenChange(open) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  window.dispatchEvent(new CustomEvent('volee:site-card', {
+    detail: { open: Boolean(open) },
+  }));
 }
 
 export function isSiteCardOpen() {

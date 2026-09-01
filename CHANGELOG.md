@@ -3,6 +3,18 @@
 This changelog records public product changes. For the authoritative description
 of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md).
 
+## [Unreleased] — 2026-09-01
+
+### Changed
+
+- User-facing chrome is branded **Eagle Eye by Volee** (product line + company)
+  via `PRODUCT_BRANDING` in `src/productProfile.js` — document title, title bar,
+  first-run, HUD property banners, README. Repo slug stays `gods-eye-view`.
+- Scope / scope-mask defaults **OFF** for cold start and globe reset (toggle
+  remains in DISPLAY; share links with `sc=1` still restore ON).
+- Opening a Sites research brief auto-collapses DISPLAY and positions the card
+  clear of the right-rail strip so property details stay readable.
+
 ## [Unreleased] — 2026-08-31
 
 ### Added
@@ -20,12 +32,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Changed
 
-- Product chrome on this fork is branded **Volee** (window title, header,
-  first-run / property globe launcher, loading screen, README). The GitHub
-  repository name stays `wit-wolf/gods-eye-view`. Sites/KMZ import is progressive
-  and cancellable so large demos no longer freeze the tab. Duplicate Cesium
-  entity ids (preview→full stream / double DEMO) are skipped instead of marking
-  the layer UNAVAILABLE.
+- Product chrome on this fork is branded **Eagle Eye by Volee** (window title,
+  header, first-run / property globe launcher, loading screen, README). The
+  GitHub repository name stays `wit-wolf/gods-eye-view`. Sites/KMZ import is
+  progressive and cancellable so large demos no longer freeze the tab.
+  Duplicate Cesium entity ids (preview→full stream / double DEMO) are skipped
+  instead of marking the layer UNAVAILABLE.
 - First-run missions are **Sites**, **Environmental** (quakes + FIRMS), and
   **Explore**. Spy chrome (TOP SECRET banners, MIC tip, Detection, CRT/NVG/
   FLIR/Noir/Snow) is hidden on the property profile; weather/fire presentation

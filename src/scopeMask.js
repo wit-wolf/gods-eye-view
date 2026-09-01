@@ -58,8 +58,13 @@ const SCOPE_OUTSIDE_COLOR = { r: 5, g: 5, b: 8 };
  * authored when 35 was what its author saw, and a link from the feather-0 era
  * carries `scf=0` explicitly because the generator always writes the field.
  * Pinned in reasonableDefaults.test.mjs.
+ *
+ * Scope itself defaults OFF for Eagle Eye property viewing (clean globe).
+ * Toggle remains in DISPLAY; share links with `sc=1` still restore ON.
  */
 export const SCOPE_FEATHER_RATIO_DEFAULT = 0.11;
+/** First-run / reset-view default — scope mask disabled for property work. */
+export const SCOPE_ENABLED_DEFAULT = false;
 /**
  * Terminus opacity at/above SCOPE_TERMINUS_FAR_M — slightly translucent so
  * faint stars survive in the corners at globe scale.
@@ -101,7 +106,7 @@ const SCOPE_TERMINUS_SAMPLE_MS = 120;
 let _canvas = null;
 let _container = null;
 let _viewer = null;
-let _enabled = true;
+let _enabled = SCOPE_ENABLED_DEFAULT;
 let _featherRatio = SCOPE_FEATHER_RATIO_DEFAULT;
 let _resizeObserver = null;
 let _dprQuery = null;
@@ -518,7 +523,7 @@ export function _resetScopeMaskForTest() {
   _canvas = null;
   _container = null;
   _viewer = null;
-  _enabled = true;
+  _enabled = SCOPE_ENABLED_DEFAULT;
   _featherRatio = SCOPE_FEATHER_RATIO_DEFAULT;
   _terminusAlpha = SCOPE_OUTSIDE_ALPHA;
   _terminusOverride = null;

@@ -1,5 +1,5 @@
 /**
- * Volee product surface — property globe, not OSINT spy console.
+ * Eagle Eye by Volee — property globe product surface (not an OSINT spy console).
  *
  * Cut feeds stay in the codebase (proxies, modules, share-token catalog) so they
  * can be re-enabled later. They must not register, start, or appear in the HUD
@@ -7,6 +7,33 @@
  */
 
 /** @typedef {'voice'|'radio'|'cctv'|'detection'|'intelClassification'|'militaryVisualStyles'|'cockpitContacts'|'models3d'|'hudOpenAiSummary'|'contactsContext'|'spaceMissionsContext'} ProductFeature */
+
+/**
+ * Single source of truth for user-facing product chrome.
+ * Repo / GitHub slug may still say gods-eye-view; do not rename the repository.
+ */
+export const PRODUCT_BRANDING = Object.freeze({
+  productLine: 'Eagle Eye',
+  company: 'Volee',
+  /** Full product name — titles, README, HUD. */
+  productName: 'Eagle Eye by Volee',
+  shortName: 'Eagle Eye',
+  tagline: 'No place left behind',
+  documentTitle: 'Eagle Eye by Volee',
+  /** Compact title-bar / loader mark (accent applied in markup). */
+  titleMark: 'EAGLE EYE',
+  titleCompanyLine: 'by Volee',
+  hudClassification: 'EAGLE EYE · BY VOLEE',
+  hudSystemLine: 'EAGLE EYE  SITE VIEW',
+  hudTopCenter: 'EAGLE EYE',
+  hudTopRight: 'SITE',
+  firstRunKicker: 'EAGLE EYE · BY VOLEE',
+  firstRunDescription:
+    'Photoreal sites, weather, and fires on one globe—for property work, not a spy console.',
+  firstRunTip: 'Tip: open Data Layers for Sites, traffic, and FIRMS fires.',
+  /** Property viewing starts without the circular scope mask. */
+  scopeEnabledByDefault: false,
+});
 
 /**
  * Layers Werner kept for property / tenant-rep work on the photoreal globe.
@@ -54,6 +81,7 @@ export const PRODUCT_PROFILE = Object.freeze({
   id: 'volee',
   /** Body class applied at boot for CSS chrome gates. */
   bodyClass: 'product-volee',
+  branding: PRODUCT_BRANDING,
   enabledLayerIds: VOLEE_ENABLED_LAYER_IDS,
   cutLayerIds: VOLEE_CUT_LAYER_IDS,
   cutVisualStyles: VOLEE_CUT_VISUAL_STYLES,
@@ -118,6 +146,28 @@ export function applyProductChrome(documentRef = globalThis.document, profile = 
   body.classList.add(profile.bodyClass);
   body.dataset.product = profile.id;
 
+  const brand = profile.branding || PRODUCT_BRANDING;
+  if (doc.title !== undefined) doc.title = brand.documentTitle;
+
+  const titleBar = doc.getElementById('title-bar');
+  if (titleBar) {
+    const h1 = titleBar.querySelector('h1');
+    if (h1) {
+      const textSpan = [...h1.querySelectorAll(':scope > span')].find((el) => (
+        !el.classList?.contains?.('title-logo') && !el.classList?.contains?.('brand-logo')
+      ));
+      if (textSpan) textSpan.textContent = brand.titleMark;
+    }
+    const subtitle = titleBar.querySelector('.subtitle');
+    if (subtitle) subtitle.textContent = brand.titleCompanyLine;
+  }
+
+  const loader = doc.getElementById('loading-screen');
+  if (loader) {
+    const loaderTitle = loader.querySelector('h2');
+    if (loaderTitle) loaderTitle.textContent = brand.titleMark;
+  }
+
   const selectors = [];
   if (!profile.features.cctv) selectors.push('#cctv-panel');
   if (!profile.features.radio) {
@@ -161,14 +211,14 @@ export function applyProductChrome(documentRef = globalThis.document, profile = 
   const launcher = doc.getElementById('first-run-launcher');
   if (launcher) {
     const kicker = launcher.querySelector('.first-run-kicker');
-    if (kicker) kicker.textContent = 'VOLEE · PROPERTY GLOBE';
+    if (kicker) kicker.textContent = brand.firstRunKicker;
     const description = launcher.querySelector('#first-run-description');
     if (description) {
-      description.textContent = 'Photoreal sites, weather, and fires on one globe—for property work, not a spy console.';
+      description.textContent = brand.firstRunDescription;
     }
     const tip = launcher.querySelector('[data-first-run-status]');
-    if (tip && /MIC button/i.test(tip.textContent || '')) {
-      tip.textContent = 'Tip: open Data Layers for Sites, traffic, and FIRMS fires.';
+    if (tip && (/MIC button/i.test(tip.textContent || '') || /Data Layers/i.test(tip.textContent || ''))) {
+      tip.textContent = brand.firstRunTip;
     }
     for (const choice of ['contacts', 'space-missions']) {
       const btn = launcher.querySelector(`[data-first-run-choice="${choice}"]`);

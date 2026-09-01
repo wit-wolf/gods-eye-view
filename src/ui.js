@@ -2559,9 +2559,9 @@ export class StyleManager {
           this.setCelestialRingEnabled(celestialRing, { syncShare: false, focus: false });
         }
         if (typeof scopeEnabled === 'boolean') {
-          setScopeMaskEnabled(scopeEnabled);
-          this._scopeBtn?.classList.toggle('active', scopeEnabled);
-          this._scopeBtn?.setAttribute('aria-pressed', String(scopeEnabled));
+          this._setScopeUiEnabled(scopeEnabled);
+        } else {
+          this._syncScopeControlsFromMask();
         }
         if (typeof scopeFeatherPct === 'number' && this._scopeFeatherSlider) {
           const pct = Math.max(0, Math.min(100, Math.round(scopeFeatherPct)));
@@ -3336,6 +3336,62 @@ export class StyleManager {
   }
 
   /**
+   * Enable/disable the circular scope mask and sync DISPLAY controls.
+   * @param {boolean} enabled
+   * @returns {void}
+   */
+  _setScopeUiEnabled(enabled) {
+    setScopeMaskEnabled(Boolean(enabled));
+    this._syncScopeControlsFromMask();
+  }
+
+  /** Mirror live scope-mask state onto the Scope toggle + feather row. */
+  _syncScopeControlsFromMask() {
+    const enabled = isScopeMaskEnabled();
+    this._scopeBtn?.classList.toggle('active', enabled);
+    this._scopeBtn?.setAttribute('aria-pressed', String(enabled));
+    document.getElementById('scope-slider-row')?.classList.toggle('visible', enabled);
+  }
+
+  /**
+   * When a Sites research brief opens, tuck DISPLAY so the card is readable;
+   * restore the prior DISPLAY collapsed state when the card closes.
+   * @returns {void}
+   */
+  _initSiteCardDisplayHandoff() {
+    this._siteCardDisplayRestore = null;
+    this._siteCardOpenHandler = (event) => {
+      const open = event?.detail?.open === true;
+      if (open) {
+        const wasCollapsed = this._ppToggles?.classList.contains('collapsed') ?? true;
+        this._siteCardDisplayRestore = { wasCollapsed };
+        if (!wasCollapsed) {
+          this.setPanelCollapsed('pp-toggles', true, {
+            explicit: false,
+            persist: false,
+            syncShare: false,
+          });
+        }
+        document.body.classList.add('site-card-open');
+        this._layoutRightPanels?.();
+        return;
+      }
+      document.body.classList.remove('site-card-open');
+      const restore = this._siteCardDisplayRestore;
+      this._siteCardDisplayRestore = null;
+      if (restore && restore.wasCollapsed === false) {
+        this.setPanelCollapsed('pp-toggles', false, {
+          explicit: false,
+          persist: false,
+          syncShare: false,
+        });
+      }
+      this._layoutRightPanels?.();
+    };
+    window.addEventListener('volee:site-card', this._siteCardOpenHandler);
+  }
+
+  /**
    * Wires up all primary UI event listeners: style buttons, keyboard shortcuts
    * (1-8 style keys, H/O/V/F/D/C hotkeys, Escape), AI prompt input with
    * debounce, bloom/sharpen/HUD toggles, detection density slider, and
@@ -3431,12 +3487,11 @@ export class StyleManager {
 
     // Scope mask — the explicit circular viewport treatment (owner ask:
     // standalone toggle + featherable edge; see src/scopeMask.js).
+    // Eagle Eye defaults scope OFF for clean property viewing.
+    this._syncScopeControlsFromMask();
     this._scopeBtn?.addEventListener('click', () => {
       this.shareLinkManager?.claimRestoreLane?.('visual');
-      const next = !isScopeMaskEnabled();
-      setScopeMaskEnabled(next);
-      this._scopeBtn.classList.toggle('active', next);
-      this._scopeBtn.setAttribute('aria-pressed', String(next));
+      this._setScopeUiEnabled(!isScopeMaskEnabled());
       this._syncShareState();
     });
     this._scopeFeatherSlider?.addEventListener('input', () => {
@@ -3446,6 +3501,7 @@ export class StyleManager {
       setScopeMaskFeather(pct / 100);
       this._syncShareState();
     });
+    this._initSiteCardDisplayHandoff();
 
     if (this._sharpenSlider) {
       this._sharpenSlider.addEventListener('input', () => {
@@ -8711,9 +8767,7 @@ export class StyleManager {
 
     const scopeState = state.scope || {};
     if (typeof scopeState.enabled === 'boolean') {
-      setScopeMaskEnabled(scopeState.enabled);
-      this._scopeBtn?.classList.toggle('active', scopeState.enabled);
-      this._scopeBtn?.setAttribute('aria-pressed', String(scopeState.enabled));
+      this._setScopeUiEnabled(scopeState.enabled);
     }
     if (typeof scopeState.featherPct === 'number' && this._scopeFeatherSlider) {
       const pct = Math.max(0, Math.min(100, Math.round(scopeState.featherPct)));
@@ -9868,6 +9922,8 @@ export class StyleManager {
     interruptCameraMotion('reset-globe');
     this._stopOrbit();
     this.cockpitView?.exit({ restoreTracking: false });
+    // Standard / reset view: property globe without the scope mask.
+    this._setScopeUiEnabled(false);
     try {
       militaryAwarenessLayer.releaseCameraOwnership?.({ origin: 'tool' });
     } catch {
@@ -10364,6 +10420,12 @@ export class StyleManager {
       this._resetGlobeBtn?.removeEventListener('click', this._globeResetHandler);
       this._cockpitResetGlobeBtn?.removeEventListener('click', this._globeResetHandler);
       this._globeResetHandler = null;
+    }
+    if (this._siteCardOpenHandler) {
+      window.removeEventListener('volee:site-card', this._siteCardOpenHandler);
+      this._siteCardOpenHandler = null;
+      this._siteCardDisplayRestore = null;
+      document.body.classList.remove('site-card-open');
     }
     if (this._clearSelectedLayersBtn && this._clearSelectedLayersHandler) {
       this._clearSelectedLayersBtn.removeEventListener('click', this._clearSelectedLayersHandler);
