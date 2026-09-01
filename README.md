@@ -50,7 +50,7 @@ Kept layers report source and freshness honestly — including partial, delayed,
 
 </div>
 
-- **📍 Sites:** KMZ/KML import, November demo pins, clickable research brief (KML fields + nearby pins + notes — no Genius scores).
+- **📍 Sites:** KMZ/KML import, November demo pins, clickable research brief (KML fields + nearby pins + Access/traffic + notes — no Genius scores).
 - **🌐 Globe:** OSM imagery on cold start (fast). Turn on **3D tiles** in DISPLAY (or MAP SOURCE → Google 3D tiles) for Photorealistic buildings. Cape Town home opens high above the city bowl.
 - **🔥 Fires & quakes:** NASA FIRMS active fires and USGS earthquakes for environmental context on site work.
 - **🚗 Traffic / roads:** Without `TOMTOM_API_KEY` the Data Layers row is **Traffic (simulated)**. With TomTom it becomes live **Street Traffic**.
@@ -211,8 +211,10 @@ Property Genius was a local-first SA retail site-screening prototype (MapLibre +
 | KMZ / KML / GeoJSON import (JSZip + `@tmcw/togeojson`) | **Ported** — Data Layers → **Sites** → **IMPORT**, or drop a file onto the page while Sites is on. Parse runs in a worker; Cesium entities stream in idle batches (cancellable). |
 | Cesium photoreal rendering (points + polygons, terrain-clamped) | **Ported** — replaces the MapLibre flat map / Google Earth workflow |
 | Clickable **research brief** (name, KMZ attributes, nearby imported pins, notes) | **Ported** — no Genius 0–100 scores; metadata notes in `localStorage`; GeoJSON in IndexedDB |
+| **Access / traffic** on the research brief (live TomTom flow near pin + 5/10/15 min drive-time rings) | **Ported** — reuses `/api/tomtom` flow tiles; drive-time via free-tier `/api/tomtom/reachable-range` (aggressive cache). Keyless = honest unavailable / simulated — no invented %. No demographics inside rings. |
 | November Google Earth Pins demo | **Bundled** — enable **Sites**, then click **DEMO**. First paint is a Cape Town preview; the full gzipped set streams afterward. |
 | Zoning GeoJSON overlay + intersection | **Deferred** — stub on the research card (“not wired yet”) |
+| Demographics / household income / LSM | **Deferred** — stub on the research card; no invented Stats SA numbers |
 | SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** — stub on the research card; do not port scrapers |
 | PropertyCentral occupancy | **Deferred** — stub on the research card |
 | Azure SQL persistence | **Deferred** — this PR stays local-first |

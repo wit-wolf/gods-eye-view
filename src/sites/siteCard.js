@@ -1,6 +1,7 @@
 /**
  * Volee Sites research brief — honest location card for an imported pin.
  * No Genius scores. Nearby counts come only from other imported Sites pins.
+ * Access / traffic uses live TomTom flow + free-tier drive-time when keyed.
  */
 import {
   ensureSiteMetadata,
@@ -15,12 +16,25 @@ import {
   stripHtmlToText,
 } from './kmlText.js';
 import { findNearbySites, formatDistanceM } from './nearbySites.js';
+import {
+  accessStatsDisplayModel,
+  loadSiteAccessStats,
+} from './siteAccessStats.js';
 
 const PANEL_ID = 'site-card-panel';
 
 let _panel = null;
 let _currentUid = null;
 let _currentProps = null;
+/** @type {AbortController|null} */
+let _accessAbort = null;
+
+function cancelAccessLoad() {
+  if (_accessAbort) {
+    _accessAbort.abort();
+    _accessAbort = null;
+  }
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -69,6 +83,45 @@ function renderNearbyBlock(nearby2km, nearby5km) {
   `;
 }
 
+function renderAccessLoadingHtml() {
+  return `
+    <p class="site-card-muted" data-site-access-status>Loading access / traffic…</p>
+    <div class="site-card-access-body" hidden></div>
+  `;
+}
+
+/**
+ * Paint Access / traffic into the card mount (idempotent).
+ * @param {HTMLElement|null} mount
+ * @param {object} stats
+ */
+function paintAccessStats(mount, stats) {
+  if (!mount) return;
+  const model = accessStatsDisplayModel(stats);
+  const status = mount.querySelector('[data-site-access-status]');
+  const body = mount.querySelector('.site-card-access-body');
+  if (status) status.hidden = true;
+  if (!body) return;
+  body.hidden = false;
+  body.innerHTML = `
+    <div class="site-card-access-block">
+      <div class="site-card-access-label">Live flow near pin</div>
+      <ul class="site-card-access-list">
+        ${model.flowLines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}
+      </ul>
+    </div>
+    <div class="site-card-access-block">
+      <div class="site-card-access-label">Drive-time catchment (5 / 10 / 15 min)</div>
+      <ul class="site-card-access-list">
+        ${model.driveLines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}
+      </ul>
+    </div>
+    ${model.footnotes.length
+    ? `<ul class="site-card-access-notes">${model.footnotes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`
+    : ''}
+  `;
+}
+
 /**
  * Open / refresh the research brief for a feature.
  * @param {object} options
@@ -92,6 +145,7 @@ export function openSiteCard({
   liveLayersNote = '',
 } = {}) {
   if (!uid || typeof document === 'undefined') return;
+  cancelAccessLoad();
   _currentUid = uid;
   _currentProps = properties;
   const panel = ensurePanel();
@@ -165,6 +219,11 @@ export function openSiteCard({
     : ''}
     </section>
 
+    <section class="site-card-section site-card-access" data-site-access>
+      <div class="site-card-section-title">Access / traffic</div>
+      ${renderAccessLoadingHtml()}
+    </section>
+
     <label class="site-card-field">
       <span>Notes</span>
       <textarea data-site-notes rows="3" placeholder="Analyst notepad…">${escapeHtml(meta.notes || '')}</textarea>
@@ -174,16 +233,20 @@ export function openSiteCard({
       <div class="site-card-section-title">Research · not wired yet</div>
       <ul class="site-card-stubs">
         <li>
-          <strong>Competitors</strong>
-          <span>${escapeHtml(competitors.brands.join(', '))} — ${escapeHtml(competitors.note)}</span>
+          <strong>Demographics / household income / LSM</strong>
+          <span>Not wired yet — no invented Stats SA numbers.</span>
         </li>
         <li>
-          <strong>Zoning</strong>
+          <strong>Zoning / SDF</strong>
           <span>GeoJSON overlay / intersection — not wired yet (no national SA zoning API).</span>
         </li>
         <li>
           <strong>PropertyCentral occupancy</strong>
           <span>Not wired yet.</span>
+        </li>
+        <li>
+          <strong>Competitor density</strong>
+          <span>${escapeHtml(competitors.brands.join(', '))} — ${escapeHtml(competitors.note)} Not wired yet.</span>
         </li>
       </ul>
       <p class="site-card-muted">No demographics, footfall, or composite scores are invented here.</p>
@@ -197,9 +260,57 @@ export function openSiteCard({
       notes: event.target.value,
     });
   });
+
+  const accessMount = panel.querySelector('[data-site-access]');
+  if (accessMount && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    const controller = new AbortController();
+    _accessAbort = controller;
+    loadSiteAccessStats({
+      latitude,
+      longitude,
+      signal: controller.signal,
+    }).then((stats) => {
+      if (_currentUid !== uid || controller.signal.aborted) return;
+      paintAccessStats(accessMount, stats);
+    }).catch((err) => {
+      if (err?.name === 'AbortError' || _currentUid !== uid) return;
+      paintAccessStats(accessMount, {
+        flow: {
+          mode: 'unavailable',
+          summary: { total: 0, pctFree: null, pctSlow: null, pctJam: null, closures: 0 },
+          coverageNote: 'Access / traffic request failed.',
+          snapshotNote: null,
+        },
+        drive: {
+          mode: 'unavailable',
+          rings: [
+            { minutes: 5, state: 'unavailable', medianKm: null, maxKm: null },
+            { minutes: 10, state: 'unavailable', medianKm: null, maxKm: null },
+            { minutes: 15, state: 'unavailable', medianKm: null, maxKm: null },
+          ],
+          note: 'Drive-time unavailable.',
+        },
+      });
+    });
+  } else if (accessMount) {
+    paintAccessStats(accessMount, {
+      flow: {
+        mode: 'unavailable',
+        summary: { total: 0, pctFree: null, pctSlow: null, pctJam: null, closures: 0 },
+        coverageNote: 'Pin has no coordinates — cannot fetch access stats.',
+        snapshotNote: null,
+      },
+      drive: {
+        mode: 'unavailable',
+        rings: [],
+        note: 'Pin has no coordinates.',
+      },
+    });
+  }
 }
 
 export function closeSiteCard() {
+  cancelAccessLoad();
   const panel = _panel || (typeof document !== 'undefined' ? document.getElementById(PANEL_ID) : null);
   if (panel) {
     panel.hidden = true;

@@ -9389,6 +9389,39 @@ body.scene-playback-mode #first-run-launcher {
   margin: 0.45rem 0 0;
 }
 
+.site-card-access-block {
+  margin: 0 0 0.7rem;
+}
+
+.site-card-access-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #8ea8a2;
+  margin: 0 0 0.3rem;
+}
+
+.site-card-access-list,
+.site-card-access-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-card-access-list li {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #cfe8e2;
+  margin: 0 0 0.25rem;
+}
+
+.site-card-access-notes li {
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: #8ea8a2;
+  margin: 0.35rem 0 0;
+}
+
 .site-card-research .site-card-stubs {
   list-style: none;
   margin: 0 0 0.45rem;

@@ -1739,32 +1739,55 @@ function rocketLaunchesProxy() {
  * tier's ~50k/day). Over the cap the proxy serves stale tiles when available,
  * else 429 {error:'budget'}.
  *
- * GET /api/tomtom/status → {hasKey, dailyCount, budget, date}. Keyless mode:
- * status reports hasKey:false and the tile endpoint 503s {error:'no_key'}
- * without touching upstream — the traffic layer then stays in simulation mode.
+ * GET /api/tomtom/status → {hasKey, dailyCount, budget, routeDailyCount,
+ * routeBudget, date}. Keyless mode: status reports hasKey:false and the tile
+ * / routing endpoints 503 {error:'no_key'} without touching upstream — the
+ * traffic layer then stays in simulation mode; Sites drive-time stays unavailable.
+ *
+ * GET /api/tomtom/reachable-range?lat=&lon=&minutes= → free-tier Routing
+ * calculateReachableRange (car, time budget). Aggressive 6 h memory+disk cache;
+ * separate soft cap TOMTOM_DAILY_ROUTE_BUDGET (default 800 of ~2500 non-tile).
  *
  * @returns {import('vite').Plugin}
  */
 function tomtomProxy() {
   const TILE_TTL_MS = 120_000;
+  const ROUTE_TTL_MS = 6 * 60 * 60 * 1000;
   const CACHE_DIR = path.join(process.cwd(), '.gev-cache', 'tomtom');
   const BUDGET_PATH = path.join(CACHE_DIR, 'budget.json');
+  const ROUTE_BUDGET_PATH = path.join(CACHE_DIR, 'route-budget.json');
   const DEFAULT_DAILY_BUDGET = 40000;
+  const DEFAULT_DAILY_ROUTE_BUDGET = 800;
   const MEM_MAX_ENTRIES = 256;
+  const ROUTE_MEM_MAX_ENTRIES = 64;
   const UPSTREAM_TIMEOUT_MS = 15000;
+  const ROUTE_UPSTREAM_TIMEOUT_MS = 20000;
+  const ALLOWED_ROUTE_MINUTES = new Set([5, 10, 15]);
 
   /** @type {Map<string, {at:number, buf:Buffer}>} tile key `z/x/y` -> cached tile (kept past TTL for serve-stale). */
   const mem = new Map();
   /** @type {Map<string, Promise<{at:number, buf:Buffer}|null>>} single-flight per tile. */
   const inflight = new Map();
+  /** @type {Map<string, {at:number, body:object}>} reachable-range cache. */
+  const routeMem = new Map();
+  /** @type {Map<string, Promise<{at:number, body:object}|null>>} */
+  const routeInflight = new Map();
 
   /** @type {{date:string, count:number}|null} lazily-loaded persistent counter. */
   let budget = null;
   let budgetLoaded = false;
+  /** @type {{date:string, count:number}|null} non-tile / routing counter. */
+  let routeBudget = null;
+  let routeBudgetLoaded = false;
 
   function dailyBudgetLimit() {
     const raw = Number.parseInt(process.env.TOMTOM_DAILY_TILE_BUDGET || '', 10);
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_BUDGET;
+  }
+
+  function dailyRouteBudgetLimit() {
+    const raw = Number.parseInt(process.env.TOMTOM_DAILY_ROUTE_BUDGET || '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_ROUTE_BUDGET;
   }
 
   async function loadBudgetOnce() {
@@ -1778,6 +1801,17 @@ function tomtomProxy() {
     } catch { /* no budget file yet */ }
   }
 
+  async function loadRouteBudgetOnce() {
+    if (routeBudgetLoaded) return;
+    routeBudgetLoaded = true;
+    try {
+      const parsed = JSON.parse(await fsp.readFile(ROUTE_BUDGET_PATH, 'utf8'));
+      if (parsed && typeof parsed.date === 'string' && Number.isFinite(parsed.count)) {
+        routeBudget = parsed;
+      }
+    } catch { /* no route budget file yet */ }
+  }
+
   async function persistBudget() {
     try {
       await fsp.mkdir(CACHE_DIR, { recursive: true });
@@ -1787,10 +1821,24 @@ function tomtomProxy() {
     }
   }
 
+  async function persistRouteBudget() {
+    try {
+      await fsp.mkdir(CACHE_DIR, { recursive: true });
+      await fsp.writeFile(ROUTE_BUDGET_PATH, JSON.stringify(routeBudget), 'utf8');
+    } catch (err) {
+      console.warn('[tomtom-proxy] route budget write failed:', err?.message || err);
+    }
+  }
+
   /** Roll the counter to today (UTC) and return it. */
   function currentBudget() {
     budget = normalizeTomTomBudget(budget, tomtomUtcDayKey());
     return budget;
+  }
+
+  function currentRouteBudget() {
+    routeBudget = normalizeTomTomBudget(routeBudget, tomtomUtcDayKey());
+    return routeBudget;
   }
 
   /** Count one upstream fetch attempt against today's budget (async persist). */
@@ -1799,7 +1847,16 @@ function tomtomProxy() {
     void persistBudget();
   }
 
+  function recordRouteUpstreamFetch() {
+    currentRouteBudget().count += 1;
+    void persistRouteBudget();
+  }
+
   const tilePath = (key) => path.join(CACHE_DIR, `flow-${key.replaceAll('/', '-')}.pbf`);
+  const routePath = (key) => path.join(
+    CACHE_DIR,
+    `reach-${key.replaceAll(/[^0-9A-Za-z._-]+/g, '_')}.json`
+  );
 
   /** Disk-cache read; tile age comes from the file's mtime. */
   async function readDiskTile(key) {
@@ -1821,6 +1878,25 @@ function tomtomProxy() {
     }
   }
 
+  async function readDiskRoute(key) {
+    try {
+      const [stat, text] = await Promise.all([
+        fsp.stat(routePath(key)),
+        fsp.readFile(routePath(key), 'utf8'),
+      ]);
+      return { at: stat.mtimeMs, body: JSON.parse(text) };
+    } catch { return null; }
+  }
+
+  async function writeDiskRoute(key, body) {
+    try {
+      await fsp.mkdir(CACHE_DIR, { recursive: true });
+      await fsp.writeFile(routePath(key), JSON.stringify(body), 'utf8');
+    } catch (err) {
+      console.warn(`[tomtom-proxy] route cache write failed for ${key}:`, err?.message || err);
+    }
+  }
+
   /** LRU-ish memory insert (Map preserves insertion order; evict the oldest). */
   function memSet(key, entry) {
     if (!mem.has(key) && mem.size >= MEM_MAX_ENTRIES) {
@@ -1828,6 +1904,14 @@ function tomtomProxy() {
       mem.delete(oldest);
     }
     mem.set(key, entry);
+  }
+
+  function routeMemSet(key, entry) {
+    if (!routeMem.has(key) && routeMem.size >= ROUTE_MEM_MAX_ENTRIES) {
+      const oldest = routeMem.keys().next().value;
+      routeMem.delete(oldest);
+    }
+    routeMem.set(key, entry);
   }
 
   async function fetchUpstream(z, x, y) {
@@ -1839,6 +1923,47 @@ function tomtomProxy() {
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length === 0) throw new Error('empty tile body');
     return buf;
+  }
+
+  /**
+   * Free-tier calculateReachableRange — returns a sanitized boundary payload.
+   * @param {number} lat @param {number} lon @param {number} minutes
+   */
+  async function fetchReachableRangeUpstream(lat, lon, minutes) {
+    const origin = `${lat},${lon}`;
+    const qs = new URLSearchParams({
+      timeBudgetInSec: String(Math.round(minutes * 60)),
+      travelMode: 'car',
+      traffic: 'true',
+      key: process.env.TOMTOM_API_KEY,
+    });
+    const url = `https://api.tomtom.com/routing/1/calculateReachableRange/${encodeURIComponent(origin)}/json?${qs}`;
+    recordRouteUpstreamFetch();
+    const res = await fetch(url, { signal: AbortSignal.timeout(ROUTE_UPSTREAM_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const boundary = Array.isArray(data?.reachableRange?.boundary)
+      ? data.reachableRange.boundary
+        .filter((pt) => Number.isFinite(pt?.latitude) && Number.isFinite(pt?.longitude))
+        .map((pt) => ({ latitude: pt.latitude, longitude: pt.longitude }))
+      : [];
+    // Cap vertices so disk/memory stay bounded (isochrones can be dense).
+    const capped = boundary.length > 256
+      ? boundary.filter((_, i) => i % Math.ceil(boundary.length / 256) === 0)
+      : boundary;
+    return {
+      minutes,
+      origin: { lat, lon },
+      boundary: capped,
+      center: data?.reachableRange?.center
+        && Number.isFinite(data.reachableRange.center.latitude)
+        && Number.isFinite(data.reachableRange.center.longitude)
+        ? {
+          latitude: data.reachableRange.center.latitude,
+          longitude: data.reachableRange.center.longitude,
+        }
+        : null,
+    };
   }
 
   return {
@@ -1868,12 +1993,84 @@ function tomtomProxy() {
 
         try {
           await loadBudgetOnce();
-          const urlPath = String(req.url || '').split('?')[0];
+          await loadRouteBudgetOnce();
+          const rawUrl = String(req.url || '');
+          const urlPath = rawUrl.split('?')[0];
+          const query = new URLSearchParams(rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?') + 1) : '');
 
           if (urlPath === '/status') {
             const hasKey = Boolean(process.env.TOMTOM_API_KEY);
             const b = currentBudget();
-            sendJson(200, { hasKey, dailyCount: b.count, budget: dailyBudgetLimit(), date: b.date });
+            const rb = currentRouteBudget();
+            sendJson(200, {
+              hasKey,
+              dailyCount: b.count,
+              budget: dailyBudgetLimit(),
+              routeDailyCount: rb.count,
+              routeBudget: dailyRouteBudgetLimit(),
+              date: b.date,
+            });
+            return;
+          }
+
+          if (urlPath === '/reachable-range') {
+            if (!process.env.TOMTOM_API_KEY) {
+              sendJson(503, { error: 'no_key' });
+              return;
+            }
+            const lat = Number.parseFloat(query.get('lat') || '');
+            const lon = Number.parseFloat(query.get('lon') || '');
+            const minutes = Number.parseInt(query.get('minutes') || '', 10);
+            if (![lat, lon].every(Number.isFinite) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+              sendJson(400, { error: 'invalid_origin' });
+              return;
+            }
+            if (!ALLOWED_ROUTE_MINUTES.has(minutes)) {
+              sendJson(400, { error: 'invalid_minutes' });
+              return;
+            }
+            // ~110 m grid — matches Sites client cache key rounding.
+            const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${minutes}`;
+            const now = Date.now();
+            let entry = routeMem.get(cacheKey);
+            if (!entry) {
+              entry = await readDiskRoute(cacheKey);
+              if (entry) routeMemSet(cacheKey, entry);
+            }
+            if (entry && now - entry.at < ROUTE_TTL_MS) {
+              sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'HIT' });
+              return;
+            }
+            if (isTomTomOverBudget(currentRouteBudget(), dailyRouteBudgetLimit())) {
+              if (entry) {
+                sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'STALE-BUDGET' });
+              } else {
+                sendJson(429, { error: 'budget' });
+              }
+              return;
+            }
+            if (!routeInflight.has(cacheKey)) {
+              routeInflight.set(cacheKey, fetchReachableRangeUpstream(lat, lon, minutes)
+                .then(async (body) => {
+                  const fresh = { at: Date.now(), body };
+                  routeMemSet(cacheKey, fresh);
+                  await writeDiskRoute(cacheKey, body);
+                  return fresh;
+                })
+                .catch((err) => {
+                  console.warn(`[tomtom-proxy] reachable-range ${cacheKey} failed (${err?.message || err})`);
+                  return null;
+                })
+                .finally(() => routeInflight.delete(cacheKey)));
+            }
+            const fresh = await routeInflight.get(cacheKey);
+            if (fresh) {
+              sendJson(200, { ...fresh.body, cached: false }, { 'x-tomtom-cache': 'MISS' });
+            } else if (entry) {
+              sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'STALE-ERROR' });
+            } else {
+              sendJson(502, { error: 'upstream' });
+            }
             return;
           }
 

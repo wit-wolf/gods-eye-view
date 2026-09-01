@@ -5,6 +5,20 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ## [Unreleased] — 2026-09-01
 
+### Added
+
+- Sites research brief **Access / traffic** section: live TomTom flow summary
+  near the pin (% free / slow / jam, closures, thin-coverage note) from the
+  existing flow-tile pipeline, labeled as a **current snapshot** (~2 min tile
+  cache) — not peak-hour historic. Keyless / unavailable shows the same honest
+  simulated state as the traffic layer (no invented live %).
+- Free-tier **drive-time catchment** (5 / 10 / 15 min) via TomTom
+  `calculateReachableRange` on same-origin `/api/tomtom/reachable-range`
+  (key server-side, 6 h cache, separate daily route budget). Distances only —
+  no invented demographics inside the rings.
+- Explicit **not wired yet** stubs on the research card for demographics /
+  LSM, zoning / SDF, PropertyCentral, and competitor density.
+
 ### Changed
 
 - Product lockup renamed to **Volo by Volee** (was Eagle Eye by Volee).
