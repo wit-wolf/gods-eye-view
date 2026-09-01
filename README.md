@@ -1,10 +1,10 @@
 <div align="center">
 
-# 🌐 Eagle Eye by Volee
+# 🌐 Volo by Volee
 
 ### A property globe — Sites, weather, and fires. Google 3D tiles optional.
 
-**Eagle Eye** is the product line; **Volee** is the company. This fork’s property / tenant-rep globe lives in [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (upstream *God's Eye View*; repo slug unchanged). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: OSM / Bing imagery by default with an opt-in **Google Photorealistic 3D Tiles** toggle, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
+**Volo** is the product; **Volee** is the studio. This fork’s property / tenant-rep globe lives in [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (upstream *God's Eye View*; repo slug unchanged). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: OSM / Bing imagery by default with an opt-in **Google Photorealistic 3D Tiles** toggle, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
 
 *No place left behind.*
 
@@ -30,7 +30,7 @@
 
 ## 🌍 Why This Exists
 
-**Eagle Eye by Volee** turns the open God's Eye View foundation into a property tool. Site pins, fires, traffic, and a photoreal Earth — not an OSINT spy console.
+**Volo by Volee** turns the open God's Eye View foundation into a property tool. Site pins, fires, traffic, and a photoreal Earth — not an OSINT spy console.
 
 The upstream project fused public signals into a browser globe. This fork keeps that globe and the Sites workflow, and **cuts** aircraft / AIS / satellites / CCTV / voice / radio from the product surface (see `src/productProfile.js`) so they never register, never poll, and never show controls. Flip the profile later if you need those feeds back; the modules and Vite proxies remain.
 
@@ -70,7 +70,7 @@ Kept layers report source and freshness honestly — including partial, delayed,
 
 Requires Node.js 24.14.x or 26.x (enforced by `package.json`).
 
-**This product is Eagle Eye by Volee** on fork [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view): South Africa city pack (`config/city_pack.za.json`), first-run fly-to **Cape Town**, and **Property Genius** absorbed as the **Sites** data layer. The MapLibre Property Genius app is not required to view those pins. Upstream God's Eye View cities remain available in the location bar.
+**This product is Volo by Volee** on fork [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view): South Africa city pack (`config/city_pack.za.json`), first-run fly-to **Cape Town**, and **Property Genius** absorbed as the **Sites** data layer. The MapLibre Property Genius app is not required to view those pins. Upstream God's Eye View cities remain available in the location bar.
 
 1. Copy `.env.example` → `.env` and set `GOOGLE_MAPS_API_KEY`.
 2. Install and run:
@@ -355,7 +355,7 @@ By default nobody else can reach your server — it binds to localhost. To share
 
 ## 📋 Responsible & Open
 
-Eagle Eye by Volee runs on **public data, clear sources, and local-first execution** (God's Eye View open-source foundation). No secrets, no private datasets, no mystery scraping — anything involving a private key is brokered server-side. Kept layers report honestly; spy theatre chrome is cut on this product profile.
+Volo by Volee runs on **public data, clear sources, and local-first execution** (God's Eye View open-source foundation). No secrets, no private datasets, no mystery scraping — anything involving a private key is brokered server-side. Kept layers report honestly; spy theatre chrome is cut on this product profile.
 
 **The line.** This project models **events, assets, infrastructure, and systems** — aircraft, vessels, satellites, fires, cameras, cities. It does not build features for named-person search, face recognition, or tracking individuals, and pull requests that cross that line won't be merged. People are not a query type here.
 

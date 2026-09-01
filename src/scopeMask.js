@@ -59,7 +59,7 @@ const SCOPE_OUTSIDE_COLOR = { r: 5, g: 5, b: 8 };
  * carries `scf=0` explicitly because the generator always writes the field.
  * Pinned in reasonableDefaults.test.mjs.
  *
- * Scope itself defaults OFF for Eagle Eye property viewing (clean globe).
+ * Scope itself defaults OFF for Volo property viewing (clean globe).
  * Toggle remains in DISPLAY; share links with `sc=1` still restore ON.
  */
 export const SCOPE_FEATHER_RATIO_DEFAULT = 0.11;

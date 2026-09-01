@@ -3490,7 +3490,7 @@ export class StyleManager {
 
     // Scope mask — the explicit circular viewport treatment (owner ask:
     // standalone toggle + featherable edge; see src/scopeMask.js).
-    // Eagle Eye defaults scope OFF for clean property viewing.
+    // Volo defaults scope OFF for clean property viewing.
     this._syncScopeControlsFromMask();
     this._scopeBtn?.addEventListener('click', () => {
       this.shareLinkManager?.claimRestoreLane?.('visual');

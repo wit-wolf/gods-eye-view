@@ -1,5 +1,5 @@
 /**
- * Eagle Eye by Volee — property globe product surface (not an OSINT spy console).
+ * Volo by Volee — property globe product surface (not an OSINT spy console).
  *
  * Cut feeds stay in the codebase (proxies, modules, share-token catalog) so they
  * can be re-enabled later. They must not register, start, or appear in the HUD
@@ -11,23 +11,24 @@
 /**
  * Single source of truth for user-facing product chrome.
  * Repo / GitHub slug may still say gods-eye-view; do not rename the repository.
+ * Product lockup: Volo (product) by Volee (studio).
  */
 export const PRODUCT_BRANDING = Object.freeze({
-  productLine: 'Eagle Eye',
+  productLine: 'Volo',
   company: 'Volee',
   /** Full product name — titles, README, HUD. */
-  productName: 'Eagle Eye by Volee',
-  shortName: 'Eagle Eye',
+  productName: 'Volo by Volee',
+  shortName: 'Volo',
   tagline: 'No place left behind',
-  documentTitle: 'Eagle Eye by Volee',
-  /** Compact title-bar / loader mark (accent applied in markup). */
-  titleMark: 'EAGLE EYE',
+  documentTitle: 'Volo by Volee',
+  /** Compact title-bar / loader mark. */
+  titleMark: 'VOLO',
   titleCompanyLine: 'by Volee',
-  hudClassification: 'EAGLE EYE · BY VOLEE',
-  hudSystemLine: 'EAGLE EYE  SITE VIEW',
-  hudTopCenter: 'EAGLE EYE',
+  hudClassification: 'VOLO · BY VOLEE',
+  hudSystemLine: 'VOLO  SITE VIEW',
+  hudTopCenter: 'VOLO',
   hudTopRight: 'SITE',
-  firstRunKicker: 'EAGLE EYE · BY VOLEE',
+  firstRunKicker: 'VOLO · BY VOLEE',
   firstRunDescription:
     'Photoreal sites, weather, and fires on one globe—for property work, not a spy console.',
   firstRunTip: 'Tip: open Data Layers for Sites, traffic, and FIRMS fires.',

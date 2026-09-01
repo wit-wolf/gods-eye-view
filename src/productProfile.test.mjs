@@ -18,17 +18,18 @@ import { SCOPE_ENABLED_DEFAULT, isScopeMaskEnabled } from './scopeMask.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-test('Eagle Eye by Volee branding is centralized', () => {
-  assert.equal(PRODUCT_BRANDING.productName, 'Eagle Eye by Volee');
+test('Volo by Volee branding is centralized', () => {
+  assert.equal(PRODUCT_BRANDING.productName, 'Volo by Volee');
   assert.equal(PRODUCT_BRANDING.company, 'Volee');
-  assert.equal(PRODUCT_BRANDING.productLine, 'Eagle Eye');
-  assert.equal(PRODUCT_PROFILE.branding.productName, 'Eagle Eye by Volee');
+  assert.equal(PRODUCT_BRANDING.productLine, 'Volo');
+  assert.equal(PRODUCT_PROFILE.branding.productName, 'Volo by Volee');
   assert.equal(PRODUCT_BRANDING.scopeEnabledByDefault, false);
   assert.equal(SCOPE_ENABLED_DEFAULT, false);
   assert.equal(isScopeMaskEnabled(), false);
   const html = readFileSync(join(root, 'index.html'), 'utf8');
-  assert.match(html, /<title>Eagle Eye by Volee<\/title>/);
-  assert.match(html, /EAGLE EYE/);
+  assert.match(html, /<title>Volo by Volee<\/title>/);
+  assert.match(html, /VOLO/);
+  assert.doesNotMatch(html, /Eagle Eye|EAGLE EYE/i);
   assert.doesNotMatch(html, /God'?s Eye View/);
   assert.doesNotMatch(html, /TOP SECRET/);
   assert.match(html, /id="scope-toggle"[^>]*aria-pressed="false"/);
@@ -162,10 +163,10 @@ test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
   assert.equal(elements.get('cctv-panel').hidden, true);
   assert.equal(elements.get('radio-panel').hidden, true);
   assert.equal(elements.get('detection-toggle').hidden, true);
-  assert.equal(elements.get('kicker').textContent, 'EAGLE EYE · BY VOLEE');
+  assert.equal(elements.get('kicker').textContent, 'VOLO · BY VOLEE');
   assert.match(elements.get('desc').textContent, /property/i);
   assert.doesNotMatch(elements.get('tip').textContent, /MIC button/i);
-  assert.equal(doc.title, 'Eagle Eye by Volee');
+  assert.equal(doc.title, 'Volo by Volee');
   assert.equal(elements.get('contacts').hidden, true);
   assert.ok(elements.get('choices')._inserted?.node?.dataset?.firstRunChoice === 'sites'
     || elements.get('choices')._inserted?.node);

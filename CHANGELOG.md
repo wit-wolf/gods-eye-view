@@ -7,9 +7,9 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Changed
 
-- User-facing chrome is branded **Eagle Eye by Volee** (product line + company)
-  via `PRODUCT_BRANDING` in `src/productProfile.js` — document title, title bar,
-  first-run, HUD property banners, README. Repo slug stays `gods-eye-view`.
+- Product lockup renamed to **Volo by Volee** (was Eagle Eye by Volee).
+  `PRODUCT_BRANDING` drives document title, title bar, first-run, HUD, README.
+  Repo slug stays `gods-eye-view`.
 - Scope / scope-mask defaults **OFF** for cold start and globe reset (toggle
   remains in DISPLAY; share links with `sc=1` still restore ON).
 - Opening a Sites research brief auto-collapses DISPLAY and positions the card
@@ -43,7 +43,7 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Changed
 
-- Product chrome on this fork is branded **Eagle Eye by Volee** (window title,
+- Product chrome on this fork is branded **Volo by Volee** (window title,
   header, first-run / property globe launcher, loading screen, README). The
   GitHub repository name stays `wit-wolf/gods-eye-view`. Sites/KMZ import is
   progressive and cancellable so large demos no longer freeze the tab.
