@@ -26,6 +26,9 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Changed
 
+- Sites **cluster counts** render as circular teal bubbles (count centered on a
+  dark disc with Sites outline) instead of bare white numerals; size tiers by
+  count. Zoom-in still de-clusters to single teal pins.
 - Product lockup renamed to **Volo by Volee** (was Eagle Eye by Volee).
   `PRODUCT_BRANDING` drives document title, title bar, first-run, HUD, README.
   Repo slug stays `gods-eye-view`.
@@ -44,8 +47,6 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   said SIMULATED; the row name now matches.
 - **Bloom** (DISPLAY): soft cinematic glow post-process — optional, GPU cost.
   Tooltip documents it; control unchanged.
-
-## [Unreleased] — 2026-08-31
 
 ### Added
 

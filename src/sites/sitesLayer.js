@@ -24,6 +24,10 @@ import {
 import { importFileInWorker } from './importWorkerBridge.js';
 import { closeSiteCard, openSiteCard, SITES_PIN_COLOR } from './siteCard.js';
 import {
+  buildSitesClusterBubbleDataUrl,
+  sitesClusterBubbleSize,
+} from './sitesClusterStyle.js';
+import {
   DEMO_GEOJSON_GZ_URL,
   DEMO_KMZ_URL,
   DEMO_LAYER_ID,
@@ -51,6 +55,10 @@ export const SITES_FIRST_PAINT_CAP = 500;
 export const SITES_PAINT_BATCH = 100;
 
 const SITES_COLOR = SITES_PIN_COLOR;
+/** Dark teal fill for cluster discs — white count stays readable. */
+const SITES_CLUSTER_FILL = '#145c56';
+const SITES_CLUSTER_OUTLINE = SITES_PIN_COLOR;
+const SITES_CLUSTER_TEXT = '#f2fffc';
 
 let _viewer = null;
 let _enabled = false;
@@ -76,6 +84,8 @@ let _featureByUid = new Map();
 let _catalog = [];
 /** Generation token so a superseded rebuild cannot finish painting. */
 let _paintGeneration = 0;
+/** @type {(() => void)|null} */
+let _removeClusterListener = null;
 
 function notifyRowControls() {
   try { _rowControlsListener?.(); } catch { /* panel refresh is best-effort */ }
@@ -231,6 +241,10 @@ function clearDataSource() {
   _featureByUid = new Map();
   _count = 0;
   _totalPlanned = 0;
+  if (_removeClusterListener) {
+    try { _removeClusterListener(); } catch { /* ignore */ }
+    _removeClusterListener = null;
+  }
   if (_dataSource) {
     try {
       // Empty first so a raced add() against this collection cannot keep
@@ -244,6 +258,73 @@ function clearDataSource() {
   _dataSource = null;
 }
 
+/**
+ * Style Cesium EntityCluster markers as circular count bubbles.
+ * Single pins keep the teal point style from `styleEntity`.
+ * @param {import('cesium').CustomDataSource} dataSource
+ */
+function installSitesClusterStyling(dataSource) {
+  if (!dataSource?.clustering || _removeClusterListener) return;
+  const clustering = dataSource.clustering;
+  clustering.enabled = true;
+  clustering.pixelRange = 18;
+  clustering.minimumClusterSize = 4;
+  clustering.clusterPoints = true;
+  clustering.clusterLabels = true;
+  clustering.clusterBillboards = true;
+
+  _removeClusterListener = clustering.clusterEvent.addEventListener((clusteredEntities, cluster) => {
+    const count = Array.isArray(clusteredEntities) ? clusteredEntities.length : 0;
+    const { diameter } = sitesClusterBubbleSize(count);
+    const image = buildSitesClusterBubbleDataUrl(count, {
+      fill: SITES_CLUSTER_FILL,
+      outline: SITES_CLUSTER_OUTLINE,
+      text: SITES_CLUSTER_TEXT,
+    });
+
+    // Hide the default bare white numeral; show a Sites-coloured disc instead.
+    cluster.label.show = false;
+    cluster.label.text = '';
+    cluster.point.show = false;
+
+    cluster.billboard.show = true;
+    cluster.billboard.id = clusteredEntities;
+    cluster.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER;
+    cluster.billboard.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
+    cluster.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+    cluster.billboard.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+    cluster.billboard.width = diameter;
+    cluster.billboard.height = diameter;
+    if (image) {
+      cluster.billboard.image = image;
+    } else {
+      // Canvas unavailable — fall back to a filled point + small outline label
+      // so we still never show a bare white floating numeral alone.
+      cluster.billboard.show = false;
+      cluster.point.show = true;
+      cluster.point.pixelSize = diameter;
+      cluster.point.color = Cesium.Color.fromCssColorString(SITES_CLUSTER_FILL);
+      cluster.point.outlineColor = Cesium.Color.fromCssColorString(SITES_CLUSTER_OUTLINE);
+      cluster.point.outlineWidth = 2;
+      cluster.point.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+      cluster.label.show = true;
+      cluster.label.text = String(count);
+      cluster.label.font = '600 13px "IBM Plex Mono", monospace';
+      cluster.label.fillColor = Cesium.Color.fromCssColorString(SITES_CLUSTER_TEXT);
+      cluster.label.showBackground = false;
+      cluster.label.verticalOrigin = Cesium.VerticalOrigin.CENTER;
+      cluster.label.horizontalOrigin = Cesium.HorizontalOrigin.CENTER;
+      cluster.label.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+      cluster.label.pixelOffset = new Cesium.Cartesian2(0, 0);
+    }
+  });
+
+  // Force a re-cluster so the listener styles existing aggregates immediately.
+  const range = clustering.pixelRange;
+  clustering.pixelRange = 0;
+  clustering.pixelRange = range;
+}
+
 function ensureDataSource() {
   if (_dataSource) return _dataSource;
   const ds = new Cesium.CustomDataSource('Sites');
@@ -253,6 +334,7 @@ function ensureDataSource() {
   ds.show = _enabled;
   _viewer.dataSources.add(ds);
   _dataSource = ds;
+  installSitesClusterStyling(ds);
   return ds;
 }
 
