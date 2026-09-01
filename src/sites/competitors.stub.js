@@ -1,12 +1,9 @@
 /**
- * SA retail competitor ingest — DEFERRED.
+ * SA retail competitor *scraper* ingest — DEFERRED.
  *
- * Property Genius scraped / ingested Cashbuild, Woolworths, Pick n Pay, and
- * related SA retail footprints as competitor layers. Those scrapers are NOT
- * ported in this PR (fragile, rate-limited, legally sensitive).
- *
- * Later work can register a live or curated competitor GeoJSON layer here and
- * expose it beside Sites without touching the KMZ import path.
+ * Live competitor nearby results on the research brief use Google Places Nearby
+ * (browser Maps key). Property Genius scrapers (Cashbuild / Woolworths / …) are
+ * NOT ported (fragile, rate-limited, legally sensitive).
  */
 export const COMPETITOR_LAYER_STUB = Object.freeze({
   id: 'sites-competitors',
@@ -18,7 +15,7 @@ export const COMPETITOR_LAYER_STUB = Object.freeze({
     'Checkers',
     'Builders Warehouse',
   ]),
-  note: 'Retail competitor ingest is deferred. Do not port Property Genius scrapers here.',
+  note: 'Retail scrapers deferred — research card uses Places Nearby for live anchors.',
 });
 
 export function getCompetitorLayerStub() {
