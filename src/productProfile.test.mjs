@@ -35,9 +35,9 @@ test('Volo by Volee branding is centralized', () => {
   assert.match(html, /id="scope-toggle"[^>]*aria-pressed="false"/);
 });
 
-test('Volee profile keeps Sites/traffic/fires and cuts OSINT feeds', () => {
+test('Volee profile keeps Sites/traffic/fires/Area News and cuts OSINT feeds', () => {
   assert.equal(PRODUCT_PROFILE.id, 'volee');
-  for (const id of ['sites', 'traffic', 'local-firms', 'earthquakes']) {
+  for (const id of ['sites', 'area-news', 'traffic', 'local-firms', 'earthquakes']) {
     assert.equal(isProductLayerEnabled(id), true, id);
   }
   for (const id of VOLEE_CUT_LAYER_IDS) {

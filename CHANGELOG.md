@@ -7,6 +7,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Added
 
+- **Area News** Data Layers toggle (off by default): Sites-style widget with
+  retail-then-business headlines for the focused camera area (selected Sites
+  pin when open). Reuses `/api/regional-brief?mode=area-news` (Nominatim +
+  Google News RSS / GDELT fallback, ZA locale when in South Africa). Honest
+  empty/unavailable states — no invented articles.
 - Sites research brief **Access / traffic** section: live TomTom flow summary
   near the pin (% free / slow / jam, closures, thin-coverage note) from the
   existing flow-tile pipeline, labeled as a **current snapshot** (~2 min tile

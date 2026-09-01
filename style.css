@@ -9456,3 +9456,124 @@ body.scene-playback-mode #first-run-launcher {
     max-height: 45vh;
   }
 }
+
+/* ── Area News widget (Sites-style) ─────────────────────────────── */
+.area-news-panel {
+  position: fixed;
+  top: 5.5rem;
+  left: 0.9rem;
+  z-index: 118;
+  width: min(24rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+  padding: 0.9rem 1rem 1.1rem;
+  border: 1px solid rgba(61, 214, 198, 0.35);
+  background:
+    linear-gradient(165deg, rgba(8, 18, 24, 0.94), rgba(6, 12, 18, 0.9));
+  color: #d7ece8;
+  font-family: "IBM Plex Mono", "Share Tech Mono", ui-monospace, monospace;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.area-news-panel[hidden] { display: none !important; }
+
+.area-news-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.area-news-kicker {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  color: rgba(61, 214, 198, 0.85);
+}
+
+.area-news-close {
+  border: 0;
+  background: transparent;
+  color: #9fb7b2;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.area-news-title {
+  margin: 0.45rem 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e8f6f2;
+}
+
+.area-news-lede,
+.area-news-muted,
+.area-news-footnote {
+  margin: 0 0 0.7rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #8ea8a2;
+}
+
+.area-news-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.area-news-item {
+  margin: 0 0 0.65rem;
+  padding: 0;
+}
+
+.area-news-item a {
+  display: grid;
+  gap: 0.15rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.area-news-item a:hover .area-news-headline {
+  color: #3dd6c6;
+}
+
+.area-news-topic {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(61, 214, 198, 0.75);
+}
+
+.area-news-headline {
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #cfe8e2;
+  font-weight: 600;
+}
+
+.area-news-meta {
+  font-size: 0.68rem;
+  color: #8ea8a2;
+}
+
+.area-news-footnote {
+  margin-bottom: 0;
+  border-top: 1px solid rgba(61, 214, 198, 0.15);
+  padding-top: 0.55rem;
+}
+
+@media (max-width: 720px) {
+  .area-news-panel {
+    top: auto;
+    bottom: 4.5rem;
+    left: 0.6rem;
+    right: 0.6rem;
+    width: auto;
+    max-height: 40vh;
+  }
+
+  body.site-card-open .area-news-panel {
+    display: none !important;
+  }
+}

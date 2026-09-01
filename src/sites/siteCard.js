@@ -28,6 +28,8 @@ let _currentUid = null;
 let _currentProps = null;
 /** @type {AbortController|null} */
 let _accessAbort = null;
+/** Last opened pin focus for Area News bias. */
+let _openFocus = null;
 
 function cancelAccessLoad() {
   if (_accessAbort) {
@@ -150,6 +152,14 @@ export function openSiteCard({
   _currentProps = properties;
   const panel = ensurePanel();
   const meta = ensureSiteMetadata(uid, name);
+  _openFocus = Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? {
+      latitude,
+      longitude,
+      name: meta.site_name || name || properties?._name || null,
+      uid,
+    }
+    : null;
   const displayName = meta.site_name || name || properties._name || 'Untitled site';
   const folder = folderFromProperties(properties, layerName);
   const description = descriptionFromProperties(properties);
@@ -320,6 +330,7 @@ export function closeSiteCard() {
   emitSiteCardOpenChange(false);
   _currentUid = null;
   _currentProps = null;
+  _openFocus = null;
 }
 
 function emitSiteCardOpenChange(open) {
@@ -332,6 +343,16 @@ function emitSiteCardOpenChange(open) {
 export function isSiteCardOpen() {
   const panel = _panel || (typeof document !== 'undefined' ? document.getElementById(PANEL_ID) : null);
   return Boolean(panel && !panel.hidden);
+}
+
+/**
+ * Focus of the open Sites pin — Area News prefers this over camera nadir.
+ * @returns {{latitude:number, longitude:number, name:string|null, uid:string}|null}
+ */
+export function getOpenSiteFocus() {
+  if (!_currentUid || !_openFocus) return null;
+  if (![ _openFocus.latitude, _openFocus.longitude ].every(Number.isFinite)) return null;
+  return { ..._openFocus };
 }
 
 /** @deprecated Scores removed — kept as no-op export for any stale imports. */

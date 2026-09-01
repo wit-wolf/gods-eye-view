@@ -17,6 +17,7 @@ import militaryInstallationsLayer from './data/militaryInstallations.js';
 import militaryAwarenessLayer from './data/militaryAwareness.js';
 import localDataLayers from './data/localLayers.js';
 import sitesLayer from './sites/sitesLayer.js';
+import areaNewsLayer from './data/areaNews.js';
 import { LAYER_STATE_REGISTRY } from './data/layerState.js';
 import { registerDataCredits } from './data/dataCredits.js';
 import { SceneDirector } from './scenes/director.js';
@@ -59,6 +60,7 @@ const LAYER_MODULES_BY_ID = Object.freeze({
   'military-installations': militaryInstallationsLayer,
   'military-awareness': militaryAwarenessLayer,
   sites: sitesLayer,
+  'area-news': areaNewsLayer,
   ...Object.fromEntries(localDataLayers.map((layer) => [layer.id, layer])),
 });
 

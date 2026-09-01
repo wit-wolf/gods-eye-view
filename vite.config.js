@@ -46,9 +46,14 @@ import { defineConfig, loadEnv } from 'vite';
 import cesium from 'vite-plugin-cesium';
 import { normalizeRadioCountryInput } from './src/data/radioCountry.js';
 import {
+  AREA_NEWS_MAX_ARTICLES,
+  buildAreaNewsSearchQueries,
+  classifyAreaNewsTopic,
+  newsLocaleForPlace,
   normalizeRegionalArticles,
   normalizeRegionalPlace,
   normalizeRegionalWeather,
+  rankAndLimitAreaNews,
 } from './src/data/regionalBrief.js';
 import { normalizeAdsbLolPointResponse } from './src/data/adsbLolFallback.js';
 import { createAisStreamAdapter, isRecognizedAisEnvelope } from './src/data/aisStreamAdapter.js';
@@ -7463,9 +7468,10 @@ function rssTag(block, tag) {
   return decodeRssText(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(block)?.[1] || '');
 }
 
-function normalizeRssArticles(xml, limit = 5) {
+function normalizeRssArticles(xml, limit = 5, topicHint = null) {
   const seen = new Set();
   const articles = [];
+  const max = Math.max(1, Math.min(AREA_NEWS_MAX_ARTICLES, limit));
   for (const match of String(xml || '').matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
     const item = match[1];
     const title = rssTag(item, 'title').slice(0, 180);
@@ -7478,14 +7484,16 @@ function normalizeRssArticles(xml, limit = 5) {
     if (seen.has(signature)) continue;
     seen.add(signature);
     const rawDate = rssTag(item, 'pubDate');
+    const topic = topicHint || classifyAreaNewsTopic(title);
     articles.push({
       title,
       url: parsedUrl.href,
       domain: source || parsedUrl.hostname.replace(/^www\./, ''),
       publishedAt: Number.isNaN(Date.parse(rawDate)) ? null : new Date(rawDate).toISOString(),
       sourceCountry: null,
+      topic,
     });
-    if (articles.length >= limit) break;
+    if (articles.length >= max) break;
   }
   return articles;
 }
@@ -7515,41 +7523,110 @@ function fetchRegionalPlace(point) {
   return task;
 }
 
-async function fetchRegionalNews(place) {
-  const query = place?.locality || place?.region || place?.country;
-  if (!query) return { status: 'unavailable', query: null, articles: [], source: null };
+async function fetchGoogleNewsRss(query, place, limit, topicHint = null) {
+  const locale = newsLocaleForPlace(place);
   const rssParams = new URLSearchParams({
     q: String(query).replace(/["\\]/g, ' ').trim(),
-    hl: 'en-US',
-    gl: 'US',
-    ceid: 'US:en',
+    hl: locale.hl,
+    gl: locale.gl,
+    ceid: locale.ceid,
   });
-  try {
-    const xml = await fetchRegionalText(`https://news.google.com/rss/search?${rssParams}`, {
-      headers: { 'User-Agent': 'GodsEyeView/0.1' },
-      timeoutMs: 12_000,
-    });
-    const articles = normalizeRssArticles(xml, 5);
-    if (articles.length) return { status: 'ready', query, articles, source: 'Google News RSS' };
-  } catch { /* fall through to the existing free index */ }
+  const xml = await fetchRegionalText(`https://news.google.com/rss/search?${rssParams}`, {
+    headers: { 'User-Agent': 'GodsEyeView/0.1' },
+    timeoutMs: 12_000,
+  });
+  return normalizeRssArticles(xml, limit, topicHint);
+}
+
+async function fetchGdeltArticles(query, limit) {
   const params = new URLSearchParams({
-    query: `"${String(query).replace(/["\\]/g, ' ').trim()}"`,
+    query: String(query).replace(/["\\]/g, ' ').trim(),
     mode: 'artlist',
     format: 'json',
-    maxrecords: '5',
+    maxrecords: String(Math.max(1, Math.min(AREA_NEWS_MAX_ARTICLES, limit))),
     sort: 'datedesc',
     timespan: '48h',
   });
-  try {
-    const payload = await fetchRegionalJson(`https://api.gdeltproject.org/api/v2/doc/doc?${params}`, {
-      headers: { 'User-Agent': 'GodsEyeView/0.1' },
-      timeoutMs: 12_000,
-    });
-    const articles = normalizeRegionalArticles(payload, 5);
-    return { status: articles.length ? 'ready' : 'empty', query, articles, source: 'GDELT fallback' };
-  } catch {
-    return { status: 'unavailable', query, articles: [], source: null };
+  const payload = await fetchRegionalJson(`https://api.gdeltproject.org/api/v2/doc/doc?${params}`, {
+    headers: { 'User-Agent': 'GodsEyeView/0.1' },
+    timeoutMs: 12_000,
+  });
+  return normalizeRegionalArticles(payload, limit);
+}
+
+/**
+ * Location-matched headlines. Cockpit uses a single locality query; Area News
+ * (`mode: 'area-news'`) prefers retail then business queries and ranks results.
+ */
+async function fetchRegionalNews(place, { mode = 'default' } = {}) {
+  const areaMode = mode === 'area-news';
+  const queries = areaMode
+    ? buildAreaNewsSearchQueries(place)
+    : (() => {
+      const q = place?.locality || place?.region || place?.country;
+      return q ? [{ topic: null, query: String(q).replace(/["\\]/g, ' ').trim() }] : [];
+    })();
+
+  if (!queries.length) {
+    return { status: 'unavailable', query: null, articles: [], source: null };
   }
+
+  const collected = [];
+  const seen = new Set();
+  let usedSource = null;
+  const perQueryLimit = areaMode ? 6 : 5;
+  const totalLimit = areaMode ? AREA_NEWS_MAX_ARTICLES : 5;
+
+  for (const entry of queries) {
+    try {
+      const rows = await fetchGoogleNewsRss(entry.query, place, perQueryLimit, entry.topic);
+      for (const row of rows) {
+        const signature = `${String(row.title).toLowerCase()}|${row.domain || ''}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        collected.push(row);
+      }
+      if (rows.length) usedSource = 'Google News RSS';
+    } catch { /* try next query / GDELT */ }
+    if (collected.length >= totalLimit) break;
+  }
+
+  if (!collected.length) {
+    try {
+      const raw = queries[0].query;
+      const fallbackQuery = areaMode ? raw : `"${String(raw).replace(/["\\]/g, ' ').trim()}"`;
+      const rows = await fetchGdeltArticles(fallbackQuery, totalLimit);
+      for (const row of rows) {
+        const withTopic = {
+          ...row,
+          topic: queries[0].topic || row.topic || classifyAreaNewsTopic(row.title),
+        };
+        const signature = `${String(withTopic.title).toLowerCase()}|${withTopic.domain || ''}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        collected.push(withTopic);
+      }
+      if (collected.length) usedSource = 'GDELT fallback';
+    } catch {
+      return {
+        status: 'unavailable',
+        query: queries.map((q) => q.query).join(' | '),
+        articles: [],
+        source: null,
+      };
+    }
+  }
+
+  const articles = areaMode
+    ? rankAndLimitAreaNews(collected, totalLimit)
+    : collected.slice(0, totalLimit);
+
+  return {
+    status: articles.length ? 'ready' : 'empty',
+    query: queries.map((q) => q.query).join(' | '),
+    articles,
+    source: usedSource,
+  };
 }
 
 async function fetchRegionalWeather(point) {
@@ -7575,19 +7652,20 @@ export function regionalBriefHasAnySource({ place, weather, news } = {}) {
 }
 
 function regionalBriefProxy() {
-  async function refresh(point, key) {
+  async function refresh(point, key, mode = 'default') {
     const [placeResult, weatherResult] = await Promise.allSettled([
       fetchRegionalPlace(point),
       fetchRegionalWeather(point),
     ]);
     const place = placeResult.status === 'fulfilled' ? placeResult.value : null;
     const weather = weatherResult.status === 'fulfilled' ? weatherResult.value : null;
-    const news = await fetchRegionalNews(place);
+    const news = await fetchRegionalNews(place, { mode });
     if (!regionalBriefHasAnySource({ place, weather, news })) {
       throw new Error('All regional briefing sources unavailable');
     }
     const payload = {
       status: place && weather && news.status !== 'unavailable' ? 'ready' : 'partial',
+      mode,
       retrievedAt: new Date().toISOString(),
       coordinates: point,
       place,
@@ -7623,7 +7701,9 @@ function regionalBriefProxy() {
         res.end(JSON.stringify({ error: 'Valid latitude and longitude are required' }));
         return;
       }
-      const key = `${(Math.round(point.latitude * 10) / 10).toFixed(1)},${(Math.round(point.longitude * 10) / 10).toFixed(1)}`;
+      const mode = url.searchParams.get('mode') === 'area-news' ? 'area-news' : 'default';
+      const cell = `${(Math.round(point.latitude * 10) / 10).toFixed(1)},${(Math.round(point.longitude * 10) / 10).toFixed(1)}`;
+      const key = mode === 'area-news' ? `${cell}:area-news` : cell;
       const now = Date.now();
       const cached = _regionalBriefCache.get(key);
       if (cached && now - cached.cachedAt <= REGIONAL_BRIEF_CACHE_MS) {
@@ -7631,7 +7711,7 @@ function regionalBriefProxy() {
         res.end(JSON.stringify({ ...cached.payload, status: 'cached' }));
         return;
       }
-      const request = coalesceProxyRequest(_regionalBriefInFlight, key, () => refresh(point, key));
+      const request = coalesceProxyRequest(_regionalBriefInFlight, key, () => refresh(point, key, mode));
       try {
         const payload = await request.promise;
         res.writeHead(200, {

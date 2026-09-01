@@ -38,11 +38,13 @@ export const PRODUCT_BRANDING = Object.freeze({
 
 /**
  * Layers Werner kept for property / tenant-rep work on the photoreal globe.
- * Fires (NASA FIRMS) and traffic/roads matter for site access; infrastructure
- * local layers help SA due diligence. Aircraft, ships, sats, CCTV, radio stay out.
+ * Fires (NASA FIRMS) and traffic/roads matter for site access; Area News and
+ * infrastructure local layers help SA due diligence. Aircraft, ships, sats,
+ * CCTV, radio stay out.
  */
 export const VOLEE_ENABLED_LAYER_IDS = Object.freeze([
   'sites',
+  'area-news',
   'traffic',
   'local-firms',
   'earthquakes',
