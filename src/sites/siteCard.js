@@ -1,13 +1,13 @@
 /**
- * Volee Sites research brief — honest location card for an imported pin.
+ * Volee Sites research brief — honest location card for an imported/dropped pin.
  * No Genius scores. Nearby counts come only from other imported Sites pins.
  * Access / traffic uses live TomTom flow + free-tier drive-time when keyed.
+ * Locality via Nominatim (regional-brief); competitors via browser Places Nearby.
  */
 import {
   ensureSiteMetadata,
   upsertSiteMetadata,
 } from './siteStore.js';
-import { getCompetitorLayerStub } from './competitors.stub.js';
 import {
   descriptionFromProperties,
   folderFromProperties,
@@ -20,6 +20,11 @@ import {
   accessStatsDisplayModel,
   loadSiteAccessStats,
 } from './siteAccessStats.js';
+import {
+  formatCompetitorListHtml,
+  loadSiteCompetitors,
+  loadSiteLocality,
+} from './siteResearch.js';
 
 const PANEL_ID = 'site-card-panel';
 
@@ -28,13 +33,24 @@ let _currentUid = null;
 let _currentProps = null;
 /** @type {AbortController|null} */
 let _accessAbort = null;
+/** @type {AbortController|null} */
+let _researchAbort = null;
 /** Last opened pin focus for Area News bias. */
 let _openFocus = null;
+/** Optional callback when the analyst renames a pin from the card. */
+let _onSiteNameChange = null;
 
 function cancelAccessLoad() {
   if (_accessAbort) {
     _accessAbort.abort();
     _accessAbort = null;
+  }
+}
+
+function cancelResearchLoad() {
+  if (_researchAbort) {
+    _researchAbort.abort();
+    _researchAbort = null;
   }
 }
 
@@ -44,6 +60,14 @@ function escapeHtml(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * Register a listener for site-name edits from the research card.
+ * @param {null|((uid:string, name:string)=>void)} listener
+ */
+export function setSiteCardNameChangeListener(listener) {
+  _onSiteNameChange = typeof listener === 'function' ? listener : null;
 }
 
 function ensurePanel() {
@@ -124,6 +148,52 @@ function paintAccessStats(mount, stats) {
   `;
 }
 
+function paintLocality(mount, locality) {
+  if (!mount) return;
+  const body = mount.querySelector('[data-site-locality-body]') || mount;
+  if (!locality || locality.status !== 'ok') {
+    body.innerHTML = `<p class="site-card-muted">${escapeHtml(locality?.message || 'Locality unavailable.')}</p>`;
+    return;
+  }
+  body.innerHTML = `
+    <p class="site-card-locality-label">${escapeHtml(locality.label)}</p>
+    <p class="site-card-muted">Reverse-geocoded via OpenStreetMap Nominatim (regional brief). Not a cadastral address.</p>
+  `;
+}
+
+function paintCompetitors(mount, competitors) {
+  if (!mount) return;
+  const body = mount.querySelector('[data-site-competitors-body]') || mount;
+  if (!competitors || (competitors.status !== 'ok' && competitors.status !== 'empty')) {
+    const msg = competitors?.status === 'keyless'
+      ? (competitors.message || 'Maps key missing — competitor nearby search unavailable.')
+      : competitors?.status === 'denied'
+        ? (competitors.message || 'Google Places denied this request.')
+        : (competitors?.message || 'Competitor search unavailable.');
+    body.innerHTML = `<p class="site-card-muted">${escapeHtml(msg)}</p>`;
+    return;
+  }
+  if (competitors.status === 'empty') {
+    body.innerHTML = `<p class="site-card-muted">${escapeHtml(competitors.message || 'No retail anchors found within 5 km.')}</p>`;
+    return;
+  }
+  const list2 = formatCompetitorListHtml(competitors.within2km, 8, escapeHtml);
+  const list5 = formatCompetitorListHtml(
+    competitors.within5km.filter((p) => p.distanceM > 2000),
+    6,
+    escapeHtml,
+  );
+  body.innerHTML = `
+    <p class="site-card-nearby-summary">
+      <strong>${competitors.within2km.length}</strong> within 2 km
+      · <strong>${competitors.within5km.length}</strong> within 5 km
+      <span class="site-card-muted"> · Google Places (retail types)</span>
+    </p>
+    ${list2 ? `<ul class="site-card-nearby-list">${list2}</ul>` : '<p class="site-card-muted">None within 2 km.</p>'}
+    ${list5 ? `<details class="site-card-attrs"><summary>Also within 5 km</summary><ul class="site-card-nearby-list">${list5}</ul></details>` : ''}
+  `;
+}
+
 /**
  * Open / refresh the research brief for a feature.
  * @param {object} options
@@ -148,6 +218,7 @@ export function openSiteCard({
 } = {}) {
   if (!uid || typeof document === 'undefined') return;
   cancelAccessLoad();
+  cancelResearchLoad();
   _currentUid = uid;
   _currentProps = properties;
   const panel = ensurePanel();
@@ -183,8 +254,6 @@ export function openSiteCard({
     limit: 200,
   });
 
-  const competitors = getCompetitorLayerStub();
-
   panel.hidden = false;
   document.body?.classList.add('site-card-open');
   emitSiteCardOpenChange(true);
@@ -193,7 +262,12 @@ export function openSiteCard({
       <div class="site-card-kicker">SITES · RESEARCH BRIEF</div>
       <button type="button" class="site-card-close" data-site-close title="Close" aria-label="Close site card">×</button>
     </div>
-    <h2 class="site-card-title">${escapeHtml(displayName)}</h2>
+    <h2 class="site-card-title" data-site-title>${escapeHtml(displayName)}</h2>
+
+    <label class="site-card-field">
+      <span>Name</span>
+      <input type="text" data-site-name value="${escapeHtml(displayName)}" placeholder="Site name…" maxlength="160" />
+    </label>
 
     <section class="site-card-section">
       <div class="site-card-section-title">Identity</div>
@@ -201,6 +275,11 @@ export function openSiteCard({
         <div><dt>Layer</dt><dd>${escapeHtml(folder)}</dd></div>
         <div><dt>Coordinates</dt><dd>${escapeHtml(coords)}</dd></div>
       </dl>
+    </section>
+
+    <section class="site-card-section" data-site-locality>
+      <div class="site-card-section-title">Locality</div>
+      <p class="site-card-muted" data-site-locality-body>Resolving reverse geocode…</p>
     </section>
 
     <section class="site-card-section">
@@ -234,6 +313,11 @@ export function openSiteCard({
       ${renderAccessLoadingHtml()}
     </section>
 
+    <section class="site-card-section" data-site-competitors>
+      <div class="site-card-section-title">Competitors nearby</div>
+      <p class="site-card-muted" data-site-competitors-body>Searching retail anchors (Places)…</p>
+    </section>
+
     <label class="site-card-field">
       <span>Notes</span>
       <textarea data-site-notes rows="3" placeholder="Analyst notepad…">${escapeHtml(meta.notes || '')}</textarea>
@@ -254,10 +338,6 @@ export function openSiteCard({
           <strong>PropertyCentral occupancy</strong>
           <span>Not wired yet.</span>
         </li>
-        <li>
-          <strong>Competitor density</strong>
-          <span>${escapeHtml(competitors.brands.join(', '))} — ${escapeHtml(competitors.note)} Not wired yet.</span>
-        </li>
       </ul>
       <p class="site-card-muted">No demographics, footfall, or composite scores are invented here.</p>
     </section>
@@ -265,10 +345,19 @@ export function openSiteCard({
 
   panel.querySelector('[data-site-close]')?.addEventListener('click', () => closeSiteCard());
   panel.querySelector('[data-site-notes]')?.addEventListener('change', (event) => {
+    const nameInput = panel.querySelector('[data-site-name]');
     upsertSiteMetadata(uid, {
-      site_name: displayName,
+      site_name: nameInput?.value?.trim() || displayName,
       notes: event.target.value,
     });
+  });
+  panel.querySelector('[data-site-name]')?.addEventListener('change', (event) => {
+    const nextName = String(event.target.value || '').trim() || 'Untitled site';
+    upsertSiteMetadata(uid, { site_name: nextName });
+    const title = panel.querySelector('[data-site-title]');
+    if (title) title.textContent = nextName;
+    if (_openFocus?.uid === uid) _openFocus = { ..._openFocus, name: nextName };
+    try { _onSiteNameChange?.(uid, nextName); } catch { /* ignore */ }
   });
 
   const accessMount = panel.querySelector('[data-site-access]');
@@ -317,10 +406,49 @@ export function openSiteCard({
       },
     });
   }
+
+  const localityMount = panel.querySelector('[data-site-locality]');
+  const competitorsMount = panel.querySelector('[data-site-competitors]');
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    const controller = new AbortController();
+    _researchAbort = controller;
+    Promise.all([
+      loadSiteLocality(latitude, longitude, { signal: controller.signal }),
+      loadSiteCompetitors(latitude, longitude, { signal: controller.signal }),
+    ]).then(([locality, competitors]) => {
+      if (_currentUid !== uid || controller.signal.aborted) return;
+      paintLocality(localityMount, locality);
+      paintCompetitors(competitorsMount, competitors);
+      // Soft-fill name for untouched "Dropped pin" defaults.
+      const nameInput = panel.querySelector('[data-site-name]');
+      const current = String(nameInput?.value || '').trim();
+      if (
+        locality?.status === 'ok'
+        && locality.label
+        && (!current || current === 'Dropped pin' || current === 'Untitled site')
+      ) {
+        if (nameInput) nameInput.value = locality.locality || locality.label;
+        const title = panel.querySelector('[data-site-title]');
+        const nextName = locality.locality || locality.label;
+        if (title) title.textContent = nextName;
+        upsertSiteMetadata(uid, { site_name: nextName });
+        if (_openFocus?.uid === uid) _openFocus = { ..._openFocus, name: nextName };
+        try { _onSiteNameChange?.(uid, nextName); } catch { /* ignore */ }
+      }
+    }).catch((err) => {
+      if (err?.name === 'AbortError' || _currentUid !== uid) return;
+      paintLocality(localityMount, { status: 'unavailable', message: 'Locality lookup failed.' });
+      paintCompetitors(competitorsMount, { status: 'unavailable', message: 'Competitor search failed.' });
+    });
+  } else {
+    paintLocality(localityMount, { status: 'unavailable', message: 'Pin has no coordinates.' });
+    paintCompetitors(competitorsMount, { status: 'unavailable', message: 'Pin has no coordinates.' });
+  }
 }
 
 export function closeSiteCard() {
   cancelAccessLoad();
+  cancelResearchLoad();
   const panel = _panel || (typeof document !== 'undefined' ? document.getElementById(PANEL_ID) : null);
   if (panel) {
     panel.hidden = true;

@@ -22,7 +22,7 @@ import {
   processGeoJSON,
 } from './importKml.js';
 import { importFileInWorker } from './importWorkerBridge.js';
-import { closeSiteCard, openSiteCard, SITES_PIN_COLOR } from './siteCard.js';
+import { closeSiteCard, openSiteCard, setSiteCardNameChangeListener, SITES_PIN_COLOR } from './siteCard.js';
 import {
   buildSitesClusterBubbleDataUrl,
   sitesClusterBubbleSize,
@@ -33,6 +33,8 @@ import {
   DEMO_LAYER_ID,
   DEMO_LAYER_NAME,
   DEMO_PREVIEW_GEOJSON_URL,
+  DROPPED_PINS_LAYER_ID,
+  DROPPED_PINS_LAYER_NAME,
   createLayerCatalogEntry,
   deleteLayerGeoJSON,
   ensureSiteMetadata,
@@ -40,6 +42,7 @@ import {
   loadLayerGeoJSON,
   saveLayerCatalog,
   saveLayerGeoJSON,
+  upsertSiteMetadata,
 } from './siteStore.js';
 import {
   isAbortError,
@@ -86,6 +89,12 @@ let _catalog = [];
 let _paintGeneration = 0;
 /** @type {(() => void)|null} */
 let _removeClusterListener = null;
+/** Hand-drop place mode (PIN chip). */
+let _placeMode = false;
+/** @type {((event: KeyboardEvent) => void)|null} */
+let _placeModeKeyHandler = null;
+/** @type {HTMLElement|null} */
+let _placeHint = null;
 
 function notifyRowControls() {
   try { _rowControlsListener?.(); } catch { /* panel refresh is best-effort */ }
@@ -564,7 +573,7 @@ async function loadCachedOrPromptEmpty() {
   if (!collections.length) {
     _count = 0;
     _totalPlanned = 0;
-    setBusy('empty', null, 'Click DEMO or IMPORT');
+    setBusy('empty', null, 'Click DEMO, IMPORT, or PIN');
     return;
   }
   const features = collections.flatMap((c) => c.features || []);
@@ -619,7 +628,8 @@ function selectSiteEntity(entity) {
     properties: props,
     latitude,
     longitude,
-    layerName: layerEntry?.name || DEMO_LAYER_NAME,
+    layerName: layerEntry?.name
+      || (props._layerId === DROPPED_PINS_LAYER_ID ? DROPPED_PINS_LAYER_NAME : DEMO_LAYER_NAME),
     sites: listSiteSummaries(),
   });
 
@@ -643,9 +653,190 @@ function installClickHandler() {
     const picked = _viewer.scene.pick(click.position);
     const entity = picked?.id;
     if (entity && entity.__sitesLayerId === SITES_LAYER_ID) {
+      if (_placeMode) setPlaceMode(false);
       selectSiteEntity(entity);
+      return;
+    }
+    if (_placeMode) {
+      const point = pickLatLonFromClick(click.position);
+      if (point) {
+        void dropPinAt(point.latitude, point.longitude);
+      }
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+}
+
+/**
+ * Ground pick for drop-pin mode (globe / ellipsoid).
+ * @param {import('cesium').Cartesian2} screenPosition
+ * @returns {{latitude:number, longitude:number}|null}
+ */
+function pickLatLonFromClick(screenPosition) {
+  if (!_viewer || !screenPosition) return null;
+  const scene = _viewer.scene;
+  let cartesian = null;
+  try {
+    const ray = _viewer.camera.getPickRay(screenPosition);
+    if (ray && scene.globe) {
+      cartesian = scene.globe.pick(ray, scene);
+    }
+  } catch { /* ignore */ }
+  if (!cartesian) {
+    try {
+      cartesian = _viewer.camera.pickEllipsoid(screenPosition, scene.globe?.ellipsoid);
+    } catch { /* ignore */ }
+  }
+  if (!cartesian) return null;
+  const carto = Cesium.Cartographic.fromCartesian(cartesian);
+  if (!carto) return null;
+  return {
+    latitude: Number(Cesium.Math.toDegrees(carto.latitude).toFixed(6)),
+    longitude: Number(Cesium.Math.toDegrees(carto.longitude).toFixed(6)),
+  };
+}
+
+function ensurePlaceHint() {
+  if (_placeHint || typeof document === 'undefined') return _placeHint;
+  const el = document.createElement('div');
+  el.id = 'sites-place-hint';
+  el.className = 'sites-place-hint';
+  el.hidden = true;
+  el.setAttribute('role', 'status');
+  el.textContent = 'Click map to drop a site · Esc cancels';
+  document.body.appendChild(el);
+  _placeHint = el;
+  return el;
+}
+
+function setPlaceMode(on) {
+  const next = Boolean(on);
+  if (_placeMode === next) {
+    notifyRowControls();
+    return;
+  }
+  _placeMode = next;
+  const hint = ensurePlaceHint();
+  if (hint) {
+    hint.hidden = !_placeMode;
+  }
+  if (typeof document !== 'undefined') {
+    document.body.classList.toggle('sites-place-mode', _placeMode);
+  }
+  if (_placeMode) {
+    if (!_placeModeKeyHandler && typeof window !== 'undefined') {
+      _placeModeKeyHandler = (event) => {
+        if (event.key === 'Escape') setPlaceMode(false);
+      };
+      window.addEventListener('keydown', _placeModeKeyHandler);
+    }
+  } else if (_placeModeKeyHandler && typeof window !== 'undefined') {
+    window.removeEventListener('keydown', _placeModeKeyHandler);
+    _placeModeKeyHandler = null;
+  }
+  notifyRowControls();
+  setBusy(
+    _count ? 'nominal' : 'empty',
+    null,
+    _placeMode ? 'Click map to drop a site' : (_count ? '' : 'Click DEMO, IMPORT, or PIN'),
+  );
+}
+
+function makeDroppedUid() {
+  return `sites:dropped:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Persist + paint one hand-dropped Sites pin, then open the research brief.
+ * @param {number} latitude
+ * @param {number} longitude
+ */
+async function dropPinAt(latitude, longitude) {
+  if (!_viewer || _destroyed || !_enabled) return;
+  if (![latitude, longitude].every(Number.isFinite)) return;
+
+  ensureDataSource();
+  _dataSource.show = true;
+
+  const uid = makeDroppedUid();
+  const name = 'Dropped pin';
+  const feature = {
+    type: 'Feature',
+    geometry: {
+      type: 'Point',
+      coordinates: [longitude, latitude],
+    },
+    properties: {
+      _uid: uid,
+      _name: name,
+      _layerId: DROPPED_PINS_LAYER_ID,
+      Name: name,
+      source: 'dropped',
+    },
+  };
+
+  ensureSiteMetadata(uid, name);
+
+  // Append into the dedicated Dropped pins GeoJSON layer (IndexedDB).
+  try {
+    const existing = await loadLayerGeoJSON(DROPPED_PINS_LAYER_ID).catch(() => null);
+    const features = Array.isArray(existing?.features) ? [...existing.features] : [];
+    features.push(feature);
+    const geojson = { type: 'FeatureCollection', features };
+    await saveLayerGeoJSON(DROPPED_PINS_LAYER_ID, geojson);
+    _catalog = loadLayerCatalog().filter((entry) => entry.id !== DROPPED_PINS_LAYER_ID);
+    _catalog.push(createLayerCatalogEntry({
+      id: DROPPED_PINS_LAYER_ID,
+      name: DROPPED_PINS_LAYER_NAME,
+      filename: 'dropped-pins.geojson',
+      type: 'geojson',
+      featureCount: features.length,
+      geometryTypes: ['Point'],
+    }));
+    saveLayerCatalog(_catalog);
+  } catch (err) {
+    console.warn('[Sites] failed to persist dropped pin:', err);
+  }
+
+  const entity = addFeatureEntity(feature, _featureByUid.size);
+  _count = _featureByUid.size;
+  _lastUpdate = Date.now();
+  setPlaceMode(false);
+  setBusy(_count ? 'nominal' : 'empty');
+  notifyRowControls();
+  governorRequestRender('sites:drop-pin');
+
+  if (entity) {
+    selectSiteEntity(entity);
+  } else {
+    openSiteCard({
+      uid,
+      name,
+      properties: feature.properties,
+      latitude,
+      longitude,
+      layerName: DROPPED_PINS_LAYER_NAME,
+      sites: listSiteSummaries(),
+    });
+  }
+}
+
+function renameSiteFeature(uid, nextName) {
+  const record = _featureByUid.get(uid);
+  if (record) {
+    record.name = nextName;
+    if (record.props) {
+      record.props._name = nextName;
+      record.props.Name = nextName;
+    }
+  }
+  const entity = _dataSource?.entities?.getById?.(uid);
+  if (entity?.properties) {
+    try {
+      entity.properties._name = nextName;
+      entity.properties.Name = nextName;
+    } catch { /* ignore */ }
+  }
+  upsertSiteMetadata(uid, { site_name: nextName });
 }
 
 function ensureFileInput() {
@@ -873,7 +1064,8 @@ async function clearImportedLayers() {
   saveLayerCatalog(_catalog);
   clearDataSource();
   closeSiteCard();
-  setBusy('empty', null, 'Click DEMO or IMPORT');
+  setPlaceMode(false);
+  setBusy('empty', null, 'Click DEMO, IMPORT, or PIN');
 }
 
 async function handlePendingAction() {
@@ -881,24 +1073,36 @@ async function handlePendingAction() {
   _pendingAction = null;
   if (!action) return;
   if (action === 'import') {
+    setPlaceMode(false);
     ensureFileInput()?.click();
     return;
   }
   if (action === 'demo') {
+    setPlaceMode(false);
     await runDemoLoad();
     return;
   }
   if (action === 'clear') {
+    setPlaceMode(false);
     await clearImportedLayers();
     return;
   }
   if (action === 'cancel') {
+    if (_placeMode) {
+      setPlaceMode(false);
+      return;
+    }
     cancelLoad();
     setBusy(_count ? 'nominal' : 'empty', null, 'Cancelled');
     return;
   }
   if (action === 'fly') {
+    setPlaceMode(false);
     flyToCurrentFeatures();
+    return;
+  }
+  if (action === 'pin-toggle') {
+    setPlaceMode(!_placeMode);
   }
 }
 
@@ -913,6 +1117,7 @@ const sitesLayer = {
   async init(viewer) {
     _viewer = viewer;
     _catalog = loadLayerCatalog();
+    setSiteCardNameChangeListener(renameSiteFeature);
   },
 
   async update() {},
@@ -928,6 +1133,7 @@ const sitesLayer = {
       source: _progressLabel
         ? `Property Genius · ${_progressLabel}`
         : 'Property Genius · local',
+      placeMode: _placeMode,
     };
   },
 
@@ -941,6 +1147,17 @@ const sitesLayer = {
         active: false,
         disabled: false,
         params: { sitesAction: 'import' },
+      },
+      {
+        id: 'sites-pin',
+        label: 'PIN',
+        title: _placeMode
+          ? 'Place mode on — click the globe to drop a site (Esc cancels)'
+          : 'Drop a Sites pin on the globe',
+        active: _placeMode,
+        disabled: busy,
+        state: _placeMode ? 'active' : 'idle',
+        params: { sitesAction: 'pin-toggle' },
       },
       {
         id: 'sites-demo',
@@ -969,11 +1186,11 @@ const sitesLayer = {
         params: { sitesAction: 'clear' },
       },
     ];
-    if (busy) {
+    if (busy || _placeMode) {
       chips.splice(1, 0, {
         id: 'sites-cancel',
         label: 'CANCEL',
-        title: 'Cancel the current import / demo load',
+        title: _placeMode ? 'Exit drop-pin mode' : 'Cancel the current import / demo load',
         active: false,
         disabled: false,
         params: { sitesAction: 'cancel' },
@@ -1010,9 +1227,10 @@ const sitesLayer = {
     installClickHandler();
     installDropTarget();
     ensureFileInput();
+    ensurePlaceHint();
     if (_dataSource) {
       _dataSource.show = true;
-      setBusy(_count ? 'nominal' : 'empty', null, _count ? '' : 'Click DEMO or IMPORT');
+      setBusy(_count ? 'nominal' : 'empty', null, _count ? '' : 'Click DEMO, IMPORT, or PIN');
     } else {
       await loadCachedOrPromptEmpty();
     }
@@ -1021,6 +1239,7 @@ const sitesLayer = {
 
   disable() {
     _enabled = false;
+    setPlaceMode(false);
     cancelLoad();
     if (_dataSource) _dataSource.show = false;
     clearSelectedEntityContextForLayer(SITES_LAYER_ID);
@@ -1035,6 +1254,7 @@ const sitesLayer = {
     if (_destroyed) return;
     _destroyed = true;
     this.disable();
+    setSiteCardNameChangeListener(null);
     _dropCleanup?.();
     if (_clickHandler) {
       _clickHandler.destroy();
@@ -1043,6 +1263,10 @@ const sitesLayer = {
     if (_fileInput) {
       _fileInput.remove();
       _fileInput = null;
+    }
+    if (_placeHint) {
+      _placeHint.remove();
+      _placeHint = null;
     }
     clearDataSource();
     if (_dataSource && (viewer || _viewer)) {
@@ -1053,6 +1277,16 @@ const sitesLayer = {
 };
 
 export default sitesLayer;
+
+/** Test / QA seam. */
+export function __sitesTestHooks() {
+  return {
+    get placeMode() { return _placeMode; },
+    setPlaceMode,
+    pickLatLonFromClick,
+    makeDroppedUid,
+  };
+}
 
 /** Test helpers */
 export function _resetSitesLayerForTest() {

@@ -13,6 +13,19 @@ import { PRODUCT_PROFILE } from '../productProfile.js';
 
 const PLACES_AUTOCOMPLETE_URL = 'https://places.googleapis.com/v1/places:autocomplete';
 const PLACES_SEARCH_TEXT_URL = 'https://places.googleapis.com/v1/places:searchText';
+const PLACES_SEARCH_NEARBY_URL = 'https://places.googleapis.com/v1/places:searchNearby';
+
+/** Retail / Ancora-relevant Places (New) Table A types. */
+export const RETAIL_COMPETITOR_PLACE_TYPES = Object.freeze([
+  'supermarket',
+  'grocery_store',
+  'shopping_mall',
+  'hardware_store',
+  'department_store',
+  'home_goods_store',
+  'convenience_store',
+  'gas_station',
+]);
 
 /** @returns {string} ISO 3166-1 alpha-2 country for Places `regionCode`. */
 export function searchCountryCode(profile = PRODUCT_PROFILE) {
@@ -343,7 +356,112 @@ export async function placesTextSearchNear(query, centerLat, centerLon, radiusM,
   };
 }
 
-function approximateDistanceM(latA, lonA, latB, lonB) {
+/**
+ * Nearby retail anchors for Sites research (browser Places API New).
+ * Uses the same referrer-restricted Maps key as ZA search / 3D tiles.
+ *
+ * @param {number} centerLat
+ * @param {number} centerLon
+ * @param {number} radiusM
+ * @param {{signal?:AbortSignal, maxResultCount?:number, includedTypes?:string[]}} [opts]
+ * @returns {Promise<{
+ *   status:'ok'|'empty'|'unavailable'|'denied'|'keyless',
+ *   places:Array<{id:string|null,name:string,distanceM:number,primaryType:string|null,types:string[]}>,
+ *   message?:string
+ * }>}
+ */
+export async function placesNearbyRetailSearch(centerLat, centerLon, radiusM, {
+  signal,
+  maxResultCount = 12,
+  includedTypes = RETAIL_COMPETITOR_PLACE_TYPES,
+} = {}) {
+  if (![centerLat, centerLon].every(Number.isFinite)) {
+    return { status: 'unavailable', places: [], message: 'Invalid coordinates' };
+  }
+  const apiKey = clientMapsApiKey();
+  if (!apiKey) {
+    return {
+      status: 'keyless',
+      places: [],
+      message: 'GOOGLE_MAPS_API_KEY is not set — competitor nearby search unavailable.',
+    };
+  }
+
+  const radius = Math.max(50, Math.min(50000, Number(radiusM) || 2000));
+  try {
+    const response = await fetch(PLACES_SEARCH_NEARBY_URL, {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': [
+          'places.id',
+          'places.displayName',
+          'places.formattedAddress',
+          'places.location',
+          'places.primaryType',
+          'places.primaryTypeDisplayName',
+          'places.types',
+        ].join(','),
+      },
+      body: JSON.stringify({
+        maxResultCount: Math.max(1, Math.min(20, maxResultCount)),
+        rankPreference: 'DISTANCE',
+        includedTypes: [...includedTypes].slice(0, 8),
+        locationRestriction: {
+          circle: {
+            center: { latitude: centerLat, longitude: centerLon },
+            radius,
+          },
+        },
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = data?.error?.message || `Places nearby failed (${response.status})`;
+      if (response.status === 403 || /denied|blocked|referer/i.test(message)) {
+        return { status: 'denied', places: [], message };
+      }
+      return { status: 'unavailable', places: [], message };
+    }
+
+    const seen = new Set();
+    const places = [];
+    for (const place of Array.isArray(data.places) ? data.places : []) {
+      const lat = place?.location?.latitude;
+      const lon = place?.location?.longitude;
+      const name = place?.displayName?.text || place?.formattedAddress;
+      if (![lat, lon].every(Number.isFinite) || !name) continue;
+      const id = place.id || `${name}|${lat}|${lon}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      places.push({
+        id: place.id || null,
+        name: String(name).slice(0, 160),
+        distanceM: approximateDistanceM(centerLat, centerLon, lat, lon),
+        primaryType: place.primaryTypeDisplayName?.text || place.primaryType || null,
+        types: Array.isArray(place.types) ? place.types.slice(0, 8) : [],
+        lat,
+        lon,
+      });
+    }
+    places.sort((a, b) => a.distanceM - b.distanceM);
+    return {
+      status: places.length ? 'ok' : 'empty',
+      places,
+    };
+  } catch (err) {
+    if (err?.name === 'AbortError') throw err;
+    return {
+      status: 'unavailable',
+      places: [],
+      message: err?.message || 'Places nearby unavailable',
+    };
+  }
+}
+
+export function approximateDistanceM(latA, lonA, latB, lonB) {
   if (![latA, lonA, latB, lonB].every(Number.isFinite)) return Number.MAX_SAFE_INTEGER;
   const latitudeScale = 111320;
   const longitudeScale = latitudeScale * Math.cos((latA * Math.PI) / 180);

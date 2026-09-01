@@ -17,6 +17,10 @@ export const DEMO_KMZ_URL = '/sites/November_Google_Earth_Pins.kmz';
 export const DEMO_GEOJSON_GZ_URL = '/sites/november_pins.geojson.gz';
 export const DEMO_PREVIEW_GEOJSON_URL = '/sites/november_pins.preview.geojson';
 
+/** Hand-dropped pins catalog / IndexedDB layer. */
+export const DROPPED_PINS_LAYER_ID = 'sites-dropped-pins';
+export const DROPPED_PINS_LAYER_NAME = 'Dropped pins';
+
 function nowIso() {
   return new Date().toISOString();
 }

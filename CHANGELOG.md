@@ -7,6 +7,11 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Added
 
+- Sites **PIN** (drop-pin) mode: toggle place mode, click empty globe to create a
+  persistent “Dropped pins” Sites point, open the research brief, Esc/CANCEL to
+  exit. Reverse-geocode locality (Nominatim via regional brief) and Google Places
+  Nearby retail competitors (2 km / 5 km) on the card when the Maps key allows;
+  demographics / zoning / PropertyCentral stay stubbed.
 - **Area News** Data Layers toggle (off by default): Sites-style widget with
   retail-then-business headlines for the focused camera area (selected Sites
   pin when open). Reuses `/api/regional-brief?mode=area-news` (Nominatim +

@@ -9374,6 +9374,47 @@ body.scene-playback-mode #first-run-launcher {
   resize: vertical;
 }
 
+.site-card-field input[type="text"] {
+  width: 100%;
+  border: 1px solid rgba(159, 183, 178, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: #e7f7f3;
+  padding: 0.4rem 0.45rem;
+  font: inherit;
+}
+
+.site-card-locality-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  color: #cfe8e2;
+  line-height: 1.35;
+}
+
+.sites-place-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 1.4rem;
+  transform: translateX(-50%);
+  z-index: 130;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid rgba(61, 214, 198, 0.45);
+  background: rgba(8, 18, 24, 0.92);
+  color: #d7ece8;
+  font-family: "IBM Plex Mono", "Share Tech Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+.sites-place-hint[hidden] { display: none !important; }
+
+body.sites-place-mode .cesium-viewer,
+body.sites-place-mode .cesium-widget,
+body.sites-place-mode canvas {
+  cursor: crosshair !important;
+}
+
 .site-card-attrs {
   margin-top: 0.35rem;
   font-size: 0.68rem;
