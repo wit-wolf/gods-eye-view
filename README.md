@@ -214,12 +214,12 @@ Property Genius was a local-first SA retail site-screening prototype (MapLibre +
 | Clickable **research brief** (name, KMZ attributes, nearby imported pins, notes) | **Ported** — no Genius 0–100 scores; metadata notes in `localStorage`; GeoJSON in IndexedDB |
 | **Drop pin (PIN)** — click globe to place a Sites point | **Ported** — persists under “Dropped pins”; opens research brief |
 | **Access / traffic** on the research brief (live TomTom flow near pin + 5/10/15 min drive-time rings) | **Ported** — reuses `/api/tomtom` flow tiles; drive-time via free-tier `/api/tomtom/reachable-range` (aggressive cache). Keyless = honest unavailable / simulated — no invented %. No demographics inside rings. |
-| **Locality + Places competitors** on the research brief | **Ported** — Nominatim reverse-geocode; browser Places Nearby (supermarket / mall / hardware / fuel, etc.) within 2–5 km. Keyless/denied = honest unavailable. |
+| **Locality + competitors** on the research brief | **Ported** — TomTom reverse-geocode + Places Search via `/api/tomtom` (same server key / non-tile budget as drive-time). Nominatim / Google Places are labeled fallbacks. Keyless/budget = honest unavailable or fallback. |
 | **Area News** (retail then business headlines for focused camera / site) | **Ported** — Data Layers toggle (off by default); Sites-style widget; `/api/regional-brief?mode=area-news`. Empty/unavailable stay honest. |
 | November Google Earth Pins demo | **Bundled** — enable **Sites**, then click **DEMO**. First paint is a Cape Town preview; the full gzipped set streams afterward. |
 | Zoning GeoJSON overlay + intersection | **Deferred** — stub on the research card (“not wired yet”) |
 | Demographics / household income / LSM | **Deferred** — stub on the research card; no invented Stats SA numbers |
-| SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** as scrapers — **live Places Nearby** covers retail anchors without scrapers |
+| SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** as scrapers — **live TomTom Places** (Google Nearby fallback) covers retail anchors without scrapers |
 | PropertyCentral occupancy | **Deferred** — stub on the research card |
 | Azure SQL persistence | **Deferred** — this PR stays local-first |
 

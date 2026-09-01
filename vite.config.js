@@ -1746,12 +1746,20 @@ function rocketLaunchesProxy() {
  *
  * GET /api/tomtom/status → {hasKey, dailyCount, budget, routeDailyCount,
  * routeBudget, date}. Keyless mode: status reports hasKey:false and the tile
- * / routing endpoints 503 {error:'no_key'} without touching upstream — the
- * traffic layer then stays in simulation mode; Sites drive-time stays unavailable.
+ * / routing / search endpoints 503 {error:'no_key'} without touching upstream —
+ * the traffic layer then stays in simulation mode; Sites research degrades.
  *
- * GET /api/tomtom/reachable-range?lat=&lon=&minutes= → free-tier Routing
+ * GET /api/tomtom/reachable-range?lat=&lon=&minutes= → Routing
  * calculateReachableRange (car, time budget). Aggressive 6 h memory+disk cache;
- * separate soft cap TOMTOM_DAILY_ROUTE_BUDGET (default 800 of ~2500 non-tile).
+ * separate soft cap TOMTOM_DAILY_ROUTE_BUDGET (default 800 of Evaluation
+ * non-tile allowance).
+ *
+ * GET /api/tomtom/reverse-geocode?lat=&lon= → Search reverseGeocode (Sites
+ * pin locality). Same non-tile budget + 6 h cache.
+ *
+ * GET /api/tomtom/nearby-poi?lat=&lon=&radius= → Search nearbySearch retail
+ * category set (Sites competitor ring). Same non-tile budget + 6 h cache.
+ * Flow tiles stay on the classic relative path — do not change that upstream.
  *
  * @returns {import('vite').Plugin}
  */
@@ -1764,10 +1772,13 @@ function tomtomProxy() {
   const DEFAULT_DAILY_BUDGET = 40000;
   const DEFAULT_DAILY_ROUTE_BUDGET = 800;
   const MEM_MAX_ENTRIES = 256;
-  const ROUTE_MEM_MAX_ENTRIES = 64;
+  const ROUTE_MEM_MAX_ENTRIES = 96;
   const UPSTREAM_TIMEOUT_MS = 15000;
   const ROUTE_UPSTREAM_TIMEOUT_MS = 20000;
   const ALLOWED_ROUTE_MINUTES = new Set([5, 10, 15]);
+  /** Shopping Centre, Market, Shop, Department Store — retail anchors only. */
+  const NEARBY_RETAIL_CATEGORY_SET = '7373,7332,9361,7327';
+  const NEARBY_LIMIT = 20;
 
   /** @type {Map<string, {at:number, buf:Buffer}>} tile key `z/x/y` -> cached tile (kept past TTL for serve-stale). */
   const mem = new Map();
@@ -1931,7 +1942,7 @@ function tomtomProxy() {
   }
 
   /**
-   * Free-tier calculateReachableRange — returns a sanitized boundary payload.
+   * calculateReachableRange — returns a sanitized boundary payload.
    * @param {number} lat @param {number} lon @param {number} minutes
    */
   async function fetchReachableRangeUpstream(lat, lon, minutes) {
@@ -1969,6 +1980,161 @@ function tomtomProxy() {
         }
         : null,
     };
+  }
+
+  /**
+   * Search reverseGeocode — sanitized locality fields for Sites pins.
+   * @param {number} lat @param {number} lon
+   */
+  async function fetchReverseGeocodeUpstream(lat, lon) {
+    const qs = new URLSearchParams({
+      key: process.env.TOMTOM_API_KEY,
+      radius: '100',
+    });
+    const origin = `${lat},${lon}`;
+    const url = `https://api.tomtom.com/search/2/reverseGeocode/${encodeURIComponent(origin)}.json?${qs}`;
+    recordRouteUpstreamFetch();
+    const res = await fetch(url, { signal: AbortSignal.timeout(ROUTE_UPSTREAM_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const addr = Array.isArray(data?.addresses) ? data.addresses[0]?.address : null;
+    if (!addr || typeof addr !== 'object') {
+      return {
+        origin: { lat, lon },
+        label: null,
+        locality: null,
+        region: null,
+        country: null,
+        countryCode: null,
+      };
+    }
+    const locality = [
+      addr.municipalitySubdivision,
+      addr.municipality,
+      addr.localName,
+    ].find((v) => typeof v === 'string' && v.trim()) || null;
+    const region = [
+      addr.countrySubdivisionName,
+      addr.countrySubdivision,
+    ].find((v) => typeof v === 'string' && v.trim()) || null;
+    const country = typeof addr.country === 'string' && addr.country.trim()
+      ? addr.country.trim()
+      : null;
+    const countryCode = typeof addr.countryCode === 'string' && addr.countryCode.trim()
+      ? addr.countryCode.trim().toUpperCase()
+      : null;
+    const label = (typeof addr.freeformAddress === 'string' && addr.freeformAddress.trim())
+      || [locality, region, country].filter(Boolean).join(', ')
+      || null;
+    return {
+      origin: { lat, lon },
+      label: label ? String(label).slice(0, 240) : null,
+      locality: locality ? String(locality).slice(0, 120) : null,
+      region: region ? String(region).slice(0, 120) : null,
+      country: country ? String(country).slice(0, 120) : null,
+      countryCode,
+    };
+  }
+
+  /**
+   * Search nearbySearch — sanitized retail POI ring for Sites competitors.
+   * @param {number} lat @param {number} lon @param {number} radiusM
+   */
+  async function fetchNearbyPoiUpstream(lat, lon, radiusM) {
+    const qs = new URLSearchParams({
+      key: process.env.TOMTOM_API_KEY,
+      lat: String(lat),
+      lon: String(lon),
+      radius: String(radiusM),
+      limit: String(NEARBY_LIMIT),
+      categorySet: NEARBY_RETAIL_CATEGORY_SET,
+    });
+    const url = `https://api.tomtom.com/search/2/nearbySearch/.json?${qs}`;
+    recordRouteUpstreamFetch();
+    const res = await fetch(url, { signal: AbortSignal.timeout(ROUTE_UPSTREAM_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const places = [];
+    const seen = new Set();
+    for (const row of Array.isArray(data?.results) ? data.results : []) {
+      const name = row?.poi?.name || row?.address?.freeformAddress;
+      const plat = row?.position?.lat;
+      const plon = row?.position?.lon;
+      if (!name || ![plat, plon].every(Number.isFinite)) continue;
+      const id = row.id || `${name}|${plat}|${plon}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const categories = Array.isArray(row?.poi?.categories)
+        ? row.poi.categories.filter((c) => typeof c === 'string').slice(0, 4)
+        : [];
+      const primaryType = categories[0]
+        || (Array.isArray(row?.poi?.categorySet) && row.poi.categorySet[0]?.id != null
+          ? String(row.poi.categorySet[0].id)
+          : null);
+      const dist = Number.isFinite(row?.dist) ? Math.round(row.dist) : null;
+      places.push({
+        id: typeof row.id === 'string' ? row.id : null,
+        name: String(name).slice(0, 160),
+        distanceM: dist,
+        primaryType,
+        types: categories,
+        lat: plat,
+        lon: plon,
+      });
+    }
+    places.sort((a, b) => (a.distanceM ?? 1e12) - (b.distanceM ?? 1e12));
+    return {
+      origin: { lat, lon },
+      radiusM,
+      places,
+    };
+  }
+
+  /**
+   * Shared memory+disk+budget path for non-tile JSON endpoints (reachable-range,
+   * reverse-geocode, nearby-poi). Sanitized bodies only.
+   */
+  async function serveCachedRouteJson(cacheKey, fetchBody, sendJson) {
+    const now = Date.now();
+    let entry = routeMem.get(cacheKey);
+    if (!entry) {
+      entry = await readDiskRoute(cacheKey);
+      if (entry) routeMemSet(cacheKey, entry);
+    }
+    if (entry && now - entry.at < ROUTE_TTL_MS) {
+      sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'HIT' });
+      return;
+    }
+    if (isTomTomOverBudget(currentRouteBudget(), dailyRouteBudgetLimit())) {
+      if (entry) {
+        sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'STALE-BUDGET' });
+      } else {
+        sendJson(429, { error: 'budget' });
+      }
+      return;
+    }
+    if (!routeInflight.has(cacheKey)) {
+      routeInflight.set(cacheKey, fetchBody()
+        .then(async (body) => {
+          const fresh = { at: Date.now(), body };
+          routeMemSet(cacheKey, fresh);
+          await writeDiskRoute(cacheKey, body);
+          return fresh;
+        })
+        .catch((err) => {
+          console.warn(`[tomtom-proxy] ${cacheKey} failed (${err?.message || err})`);
+          return null;
+        })
+        .finally(() => routeInflight.delete(cacheKey)));
+    }
+    const fresh = await routeInflight.get(cacheKey);
+    if (fresh) {
+      sendJson(200, { ...fresh.body, cached: false }, { 'x-tomtom-cache': 'MISS' });
+    } else if (entry) {
+      sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'STALE-ERROR' });
+    } else {
+      sendJson(502, { error: 'upstream' });
+    }
   }
 
   return {
@@ -2035,47 +2201,57 @@ function tomtomProxy() {
               return;
             }
             // ~110 m grid — matches Sites client cache key rounding.
-            const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${minutes}`;
-            const now = Date.now();
-            let entry = routeMem.get(cacheKey);
-            if (!entry) {
-              entry = await readDiskRoute(cacheKey);
-              if (entry) routeMemSet(cacheKey, entry);
-            }
-            if (entry && now - entry.at < ROUTE_TTL_MS) {
-              sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'HIT' });
+            const cacheKey = `reach-${lat.toFixed(3)},${lon.toFixed(3)},${minutes}`;
+            await serveCachedRouteJson(
+              cacheKey,
+              () => fetchReachableRangeUpstream(lat, lon, minutes),
+              sendJson,
+            );
+            return;
+          }
+
+          if (urlPath === '/reverse-geocode') {
+            if (!process.env.TOMTOM_API_KEY) {
+              sendJson(503, { error: 'no_key' });
               return;
             }
-            if (isTomTomOverBudget(currentRouteBudget(), dailyRouteBudgetLimit())) {
-              if (entry) {
-                sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'STALE-BUDGET' });
-              } else {
-                sendJson(429, { error: 'budget' });
-              }
+            const lat = Number.parseFloat(query.get('lat') || '');
+            const lon = Number.parseFloat(query.get('lon') || '');
+            if (![lat, lon].every(Number.isFinite) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+              sendJson(400, { error: 'invalid_origin' });
               return;
             }
-            if (!routeInflight.has(cacheKey)) {
-              routeInflight.set(cacheKey, fetchReachableRangeUpstream(lat, lon, minutes)
-                .then(async (body) => {
-                  const fresh = { at: Date.now(), body };
-                  routeMemSet(cacheKey, fresh);
-                  await writeDiskRoute(cacheKey, body);
-                  return fresh;
-                })
-                .catch((err) => {
-                  console.warn(`[tomtom-proxy] reachable-range ${cacheKey} failed (${err?.message || err})`);
-                  return null;
-                })
-                .finally(() => routeInflight.delete(cacheKey)));
+            const cacheKey = `rev-${lat.toFixed(3)},${lon.toFixed(3)}`;
+            await serveCachedRouteJson(
+              cacheKey,
+              () => fetchReverseGeocodeUpstream(lat, lon),
+              sendJson,
+            );
+            return;
+          }
+
+          if (urlPath === '/nearby-poi') {
+            if (!process.env.TOMTOM_API_KEY) {
+              sendJson(503, { error: 'no_key' });
+              return;
             }
-            const fresh = await routeInflight.get(cacheKey);
-            if (fresh) {
-              sendJson(200, { ...fresh.body, cached: false }, { 'x-tomtom-cache': 'MISS' });
-            } else if (entry) {
-              sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'STALE-ERROR' });
-            } else {
-              sendJson(502, { error: 'upstream' });
+            const lat = Number.parseFloat(query.get('lat') || '');
+            const lon = Number.parseFloat(query.get('lon') || '');
+            const radiusRaw = Number.parseInt(query.get('radius') || '5000', 10);
+            const radiusM = Number.isFinite(radiusRaw)
+              ? Math.max(50, Math.min(50000, radiusRaw))
+              : 5000;
+            if (![lat, lon].every(Number.isFinite) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+              sendJson(400, { error: 'invalid_origin' });
+              return;
             }
+            // Fixed retail categorySet server-side — clients cannot widen the query.
+            const cacheKey = `poi-${lat.toFixed(3)},${lon.toFixed(3)},${radiusM}`;
+            await serveCachedRouteJson(
+              cacheKey,
+              () => fetchNearbyPoiUpstream(lat, lon, radiusM),
+              sendJson,
+            );
             return;
           }
 

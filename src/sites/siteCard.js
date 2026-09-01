@@ -1,8 +1,9 @@
 /**
  * Volee Sites research brief — honest location card for an imported/dropped pin.
  * No Genius scores. Nearby counts come only from other imported Sites pins.
- * Access / traffic uses live TomTom flow + free-tier drive-time when keyed.
- * Locality via Nominatim (regional-brief); competitors via browser Places Nearby.
+ * Access / traffic uses live TomTom flow + drive-time when keyed.
+ * Locality + competitors prefer TomTom Search (server key); Nominatim /
+ * Google Places are labeled fallbacks.
  */
 import {
   ensureSiteMetadata,
@@ -155,10 +156,23 @@ function paintLocality(mount, locality) {
     body.innerHTML = `<p class="site-card-muted">${escapeHtml(locality?.message || 'Locality unavailable.')}</p>`;
     return;
   }
+  const sourceLine = locality.source === 'tomtom'
+    ? 'Reverse-geocoded via TomTom Search (server key). Not a cadastral address.'
+    : locality.source === 'nominatim'
+      ? `Reverse-geocoded via OpenStreetMap Nominatim${locality.fallbackNote || ''}. Not a cadastral address.`
+      : 'Reverse-geocoded locality. Not a cadastral address.';
   body.innerHTML = `
     <p class="site-card-locality-label">${escapeHtml(locality.label)}</p>
-    <p class="site-card-muted">Reverse-geocoded via OpenStreetMap Nominatim (regional brief). Not a cadastral address.</p>
+    <p class="site-card-muted">${escapeHtml(sourceLine)}</p>
   `;
+}
+
+function competitorSourceLabel(competitors) {
+  if (competitors?.source === 'tomtom') return ' · TomTom Places Search (retail categories)';
+  if (competitors?.source === 'google') {
+    return ` · Google Places (retail types)${competitors.fallbackNote || ''}`;
+  }
+  return '';
 }
 
 function paintCompetitors(mount, competitors) {
@@ -166,10 +180,12 @@ function paintCompetitors(mount, competitors) {
   const body = mount.querySelector('[data-site-competitors-body]') || mount;
   if (!competitors || (competitors.status !== 'ok' && competitors.status !== 'empty')) {
     const msg = competitors?.status === 'keyless'
-      ? (competitors.message || 'Maps key missing — competitor nearby search unavailable.')
-      : competitors?.status === 'denied'
-        ? (competitors.message || 'Google Places denied this request.')
-        : (competitors?.message || 'Competitor search unavailable.');
+      ? (competitors.message || 'No TomTom or Maps key — competitor nearby search unavailable.')
+      : competitors?.status === 'budget'
+        ? (competitors.message || 'TomTom Evaluation search budget reached — try again later.')
+        : competitors?.status === 'denied'
+          ? (competitors.message || 'Google Places denied this request.')
+          : (competitors?.message || 'Competitor search unavailable.');
     body.innerHTML = `<p class="site-card-muted">${escapeHtml(msg)}</p>`;
     return;
   }
@@ -187,7 +203,7 @@ function paintCompetitors(mount, competitors) {
     <p class="site-card-nearby-summary">
       <strong>${competitors.within2km.length}</strong> within 2 km
       · <strong>${competitors.within5km.length}</strong> within 5 km
-      <span class="site-card-muted"> · Google Places (retail types)</span>
+      <span class="site-card-muted">${escapeHtml(competitorSourceLabel(competitors))}</span>
     </p>
     ${list2 ? `<ul class="site-card-nearby-list">${list2}</ul>` : '<p class="site-card-muted">None within 2 km.</p>'}
     ${list5 ? `<details class="site-card-attrs"><summary>Also within 5 km</summary><ul class="site-card-nearby-list">${list5}</ul></details>` : ''}
@@ -315,7 +331,7 @@ export function openSiteCard({
 
     <section class="site-card-section" data-site-competitors>
       <div class="site-card-section-title">Competitors nearby</div>
-      <p class="site-card-muted" data-site-competitors-body>Searching retail anchors (Places)…</p>
+      <p class="site-card-muted" data-site-competitors-body>Searching retail anchors (TomTom Places)…</p>
     </section>
 
     <label class="site-card-field">

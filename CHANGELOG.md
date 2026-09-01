@@ -9,9 +9,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 - Sites **PIN** (drop-pin) mode: toggle place mode, click empty globe to create a
   persistent “Dropped pins” Sites point, open the research brief, Esc/CANCEL to
-  exit. Reverse-geocode locality (Nominatim via regional brief) and Google Places
-  Nearby retail competitors (2 km / 5 km) on the card when the Maps key allows;
-  demographics / zoning / PropertyCentral stay stubbed.
+  exit. Reverse-geocode locality prefers **TomTom Search** (`/api/tomtom/reverse-geocode`,
+  server `TOMTOM_API_KEY`); Nominatim via regional brief is the labeled fallback.
+  Competitor retail ring prefers **TomTom Places nearby** (`/api/tomtom/nearby-poi`,
+  shopping/market/shop/department categories) with Google Places Nearby as
+  fallback when the Maps key allows. Demographics / zoning / PropertyCentral
+  stay stubbed. Evaluation search quota shares `TOMTOM_DAILY_ROUTE_BUDGET` with
+  drive-time — over limit degrades honestly (stale cache or fallback / message).
 - **Area News** Data Layers toggle (off by default): Sites-style widget with
   retail-then-business headlines for the focused camera area (selected Sites
   pin when open). Reuses `/api/regional-brief?mode=area-news` (Nominatim +
