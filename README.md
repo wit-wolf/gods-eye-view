@@ -354,7 +354,7 @@ By default nobody else can reach your server — it binds to localhost. To share
 
 ## 📋 Responsible & Open
 
-Volee runs on **public data, clear sources, and local-first execution** (God's Eye View open-source foundation). No secrets, no private datasets, no mystery scraping — anything involving a private key is brokered server-side. It has the visual grammar of a classified ops room, built entirely from open signals and inspectable code.
+Eagle Eye by Volee runs on **public data, clear sources, and local-first execution** (God's Eye View open-source foundation). No secrets, no private datasets, no mystery scraping — anything involving a private key is brokered server-side. Kept layers report honestly; spy theatre chrome is cut on this product profile.
 
 **The line.** This project models **events, assets, infrastructure, and systems** — aircraft, vessels, satellites, fires, cameras, cities. It does not build features for named-person search, face recognition, or tracking individuals, and pull requests that cross that line won't be merged. People are not a query type here.
 
