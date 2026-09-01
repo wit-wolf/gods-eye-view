@@ -120,6 +120,20 @@ export function ensureSiteMetadata(uid, name) {
 }
 
 /**
+ * Remove notes / display-name metadata for one feature uid.
+ * @param {string} uid
+ * @returns {boolean}
+ */
+export function deleteSiteMetadata(uid) {
+  if (!uid) return false;
+  const map = loadSiteMetadataMap();
+  if (!Object.prototype.hasOwnProperty.call(map, uid)) return false;
+  delete map[uid];
+  saveSiteMetadataMap(map);
+  return true;
+}
+
+/**
  * @returns {object[]}
  */
 export function loadLayerCatalog() {

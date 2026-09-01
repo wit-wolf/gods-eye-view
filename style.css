@@ -9487,6 +9487,38 @@ body.sites-place-mode canvas {
   line-height: 1.35;
 }
 
+.site-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.site-card-actions .site-card-muted strong {
+  color: #cfe8e2;
+  font-weight: 600;
+}
+
+.site-card-delete {
+  align-self: stretch;
+  border: 1px solid rgba(220, 90, 90, 0.55);
+  background: rgba(90, 22, 22, 0.45);
+  color: #ffc9c9;
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+}
+
+.site-card-delete:hover,
+.site-card-delete:focus-visible {
+  background: rgba(140, 28, 28, 0.65);
+  border-color: rgba(255, 130, 130, 0.75);
+  color: #fff0f0;
+  outline: none;
+}
+
 @media (max-width: 720px) {
   .site-card-panel {
     top: auto;

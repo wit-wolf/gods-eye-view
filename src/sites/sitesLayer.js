@@ -9,6 +9,7 @@ import * as Cesium from 'cesium';
 import { governorRequestRender } from '../renderGovernor.js';
 import {
   clearSelectedEntityContextForLayer,
+  getContextStore,
   registerEntityContext,
   removeEntityContextsForLayer,
   selectEntityContext,
@@ -22,7 +23,7 @@ import {
   processGeoJSON,
 } from './importKml.js';
 import { importFileInWorker } from './importWorkerBridge.js';
-import { closeSiteCard, openSiteCard, setSiteCardNameChangeListener, SITES_PIN_COLOR } from './siteCard.js';
+import { closeSiteCard, openSiteCard, setSiteCardDeleteListener, setSiteCardNameChangeListener, SITES_PIN_COLOR } from './siteCard.js';
 import {
   buildSitesClusterBubbleDataUrl,
   sitesClusterBubbleSize,
@@ -47,6 +48,7 @@ import {
   DROPPED_PINS_LAYER_NAME,
   createLayerCatalogEntry,
   deleteLayerGeoJSON,
+  deleteSiteMetadata,
   ensureSiteMetadata,
   loadLayerCatalog,
   loadLayerGeoJSON,
@@ -940,6 +942,85 @@ function renameSiteFeature(uid, nextName) {
   upsertSiteMetadata(uid, { site_name: nextName });
 }
 
+/**
+ * Remove one Sites pin from the globe + owning layer persistence.
+ * @param {string} uid
+ * @returns {Promise<boolean>}
+ */
+async function deleteSiteFeature(uid) {
+  if (!uid || _destroyed) return false;
+  const record = _featureByUid.get(uid);
+  const props = record?.props
+    || (record?.entity?.properties?.getValue?.(Cesium.JulianDate.now()) || {});
+  const layerId = props?._layerId || DEMO_LAYER_ID;
+
+  // Globe / in-memory first so the UI feels instant.
+  const entity = record?.entity || _dataSource?.entities?.getById?.(uid);
+  if (_dataSource && entity) {
+    try { _dataSource.entities.remove(entity); } catch { /* ignore */ }
+  }
+  _featureByUid.delete(uid);
+  _count = _featureByUid.size;
+  _lastUpdate = Date.now();
+
+  try {
+    const store = getContextStore();
+    const contextId = `${SITES_LAYER_ID}:${uid}`;
+    store.entities.delete(contextId);
+    if (store.selectedEntityId === contextId) {
+      store.selectedEntityId = null;
+      store.selectedAt = null;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('gev:entity-selection-cleared', {
+          detail: { layerId: SITES_LAYER_ID, reason: 'deliberate' },
+        }));
+      }
+    }
+  } catch { /* ignore */ }
+
+  if (_viewer?.selectedEntity?.__siteUid === uid) {
+    _viewer.selectedEntity = undefined;
+  }
+  clearSelectedEntityContextForLayer(SITES_LAYER_ID);
+  deleteSiteMetadata(uid);
+  closeSiteCard();
+
+  // Persist: drop the feature from its layer GeoJSON (dropped / import / demo).
+  try {
+    const existing = await loadLayerGeoJSON(layerId).catch(() => null);
+    const features = Array.isArray(existing?.features) ? existing.features : null;
+    if (features) {
+      const nextFeatures = features.filter((f) => f?.properties?._uid !== uid);
+      if (nextFeatures.length !== features.length) {
+        if (nextFeatures.length === 0) {
+          await deleteLayerGeoJSON(layerId).catch(() => {});
+          _catalog = loadLayerCatalog().filter((entry) => entry.id !== layerId);
+          saveLayerCatalog(_catalog);
+        } else {
+          await saveLayerGeoJSON(layerId, {
+            type: 'FeatureCollection',
+            features: nextFeatures,
+          });
+          _catalog = loadLayerCatalog();
+          const entry = _catalog.find((row) => row.id === layerId);
+          if (entry) {
+            entry.feature_count = nextFeatures.length;
+            saveLayerCatalog(_catalog);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Sites] failed to persist pin delete:', err);
+  }
+
+  setBusy(_count ? 'nominal' : 'empty', null, _count ? '' : 'Click DEMO, IMPORT, or PIN');
+  notifyRowControls();
+  if (_dataSource?.clustering) applySitesClusterLod({ force: true });
+  governorRequestRender('sites:delete-pin');
+  return true;
+}
+
 function ensureFileInput() {
   if (_fileInput || typeof document === 'undefined') return _fileInput;
   _fileInput = document.createElement('input');
@@ -1245,6 +1326,7 @@ const sitesLayer = {
     _viewer = viewer;
     _catalog = loadLayerCatalog();
     setSiteCardNameChangeListener(renameSiteFeature);
+    setSiteCardDeleteListener((uid) => { void deleteSiteFeature(uid); });
   },
 
   async update() {},
@@ -1392,6 +1474,7 @@ const sitesLayer = {
     _unsubFastPreset?.();
     _unsubFastPreset = null;
     setSiteCardNameChangeListener(null);
+    setSiteCardDeleteListener(null);
     _dropCleanup?.();
     if (_clickHandler) {
       _clickHandler.destroy();

@@ -40,6 +40,10 @@ let _researchAbort = null;
 let _openFocus = null;
 /** Optional callback when the analyst renames a pin from the card. */
 let _onSiteNameChange = null;
+/** Optional callback when the analyst deletes the open pin. */
+let _onSiteDelete = null;
+/** @type {((event: KeyboardEvent) => void)|null} */
+let _deleteKeyHandler = null;
 
 function cancelAccessLoad() {
   if (_accessAbort) {
@@ -69,6 +73,55 @@ function escapeHtml(value) {
  */
 export function setSiteCardNameChangeListener(listener) {
   _onSiteNameChange = typeof listener === 'function' ? listener : null;
+}
+
+/**
+ * Register a listener for Delete pin from the research card.
+ * @param {null|((uid:string)=>void)} listener
+ */
+export function setSiteCardDeleteListener(listener) {
+  _onSiteDelete = typeof listener === 'function' ? listener : null;
+}
+
+function uninstallDeleteKeyHandler() {
+  if (!_deleteKeyHandler || typeof document === 'undefined') {
+    _deleteKeyHandler = null;
+    return;
+  }
+  document.removeEventListener('keydown', _deleteKeyHandler);
+  _deleteKeyHandler = null;
+}
+
+/**
+ * Confirm + delete the open pin (button or Delete key).
+ * @param {string} uid
+ * @param {string} displayName
+ */
+function requestDeletePin(uid, displayName) {
+  if (!uid || typeof _onSiteDelete !== 'function') return;
+  const liveName = _panel?.querySelector?.('[data-site-title]')?.textContent
+    || _panel?.querySelector?.('[data-site-name]')?.value;
+  const label = String(liveName || displayName || 'this pin').trim() || 'this pin';
+  const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+    ? window.confirm(`Delete pin “${label}”? This cannot be undone. Other Sites pins stay.`)
+    : true;
+  if (!ok) return;
+  try { _onSiteDelete(uid); } catch { /* ignore */ }
+}
+
+function installDeleteKeyHandler(uid, displayName) {
+  uninstallDeleteKeyHandler();
+  if (typeof document === 'undefined') return;
+  _deleteKeyHandler = (event) => {
+    if (event.key !== 'Delete') return;
+    const tag = event.target?.tagName?.toLowerCase?.();
+    const editable = tag === 'input' || tag === 'textarea' || event.target?.isContentEditable;
+    if (editable) return;
+    if (_currentUid !== uid || !isSiteCardOpen()) return;
+    event.preventDefault();
+    requestDeletePin(uid, displayName);
+  };
+  document.addEventListener('keydown', _deleteKeyHandler);
 }
 
 function ensurePanel() {
@@ -357,9 +410,20 @@ export function openSiteCard({
       </ul>
       <p class="site-card-muted">No demographics, footfall, or composite scores are invented here.</p>
     </section>
+
+    <section class="site-card-section site-card-actions">
+      <p class="site-card-muted">Research = this brief (click a pin). Load KMZ/KML via <strong>IMPORT</strong> or drop a file on the globe. <strong>RESET</strong> clears all Sites — use Delete pin for one.</p>
+      <button type="button" class="site-card-delete" data-site-delete title="Remove this pin only (Delete key)">
+        Delete pin
+      </button>
+    </section>
   `;
 
   panel.querySelector('[data-site-close]')?.addEventListener('click', () => closeSiteCard());
+  panel.querySelector('[data-site-delete]')?.addEventListener('click', () => {
+    requestDeletePin(uid, displayName);
+  });
+  installDeleteKeyHandler(uid, displayName);
   panel.querySelector('[data-site-notes]')?.addEventListener('change', (event) => {
     const nameInput = panel.querySelector('[data-site-name]');
     upsertSiteMetadata(uid, {
@@ -465,6 +529,7 @@ export function openSiteCard({
 export function closeSiteCard() {
   cancelAccessLoad();
   cancelResearchLoad();
+  uninstallDeleteKeyHandler();
   const panel = _panel || (typeof document !== 'undefined' ? document.getElementById(PANEL_ID) : null);
   if (panel) {
     panel.hidden = true;

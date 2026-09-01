@@ -220,7 +220,7 @@ Property Genius was a local-first SA retail site-screening prototype (MapLibre +
 | KMZ / KML / GeoJSON import (JSZip + `@tmcw/togeojson`) | **Ported** — Data Layers → **Sites** → **IMPORT**, or drop a file onto the page while Sites is on. Parse runs in a worker; Cesium entities stream in idle batches (cancellable). |
 | Cesium photoreal rendering (points + polygons, terrain-clamped) | **Ported** — replaces the MapLibre flat map / Google Earth workflow |
 | Clickable **research brief** (name, KMZ attributes, nearby imported pins, notes) | **Ported** — no Genius 0–100 scores; metadata notes in `localStorage`; GeoJSON in IndexedDB |
-| **Drop pin (PIN)** — click globe to place a Sites point | **Ported** — persists under “Dropped pins”; opens research brief |
+| **Drop pin (PIN)** — click globe to place a Sites point | **Ported** — persists under “Dropped pins”; opens research brief; **Delete pin** on the card removes one pin (confirm) without RESET |
 | **Access / traffic** on the research brief (live TomTom flow near pin + 5/10/15 min drive-time rings) | **Ported** — reuses `/api/tomtom` flow tiles; drive-time via free-tier `/api/tomtom/reachable-range` (aggressive cache). Keyless = honest unavailable / simulated — no invented %. No demographics inside rings. |
 | **Locality + competitors** on the research brief | **Ported** — TomTom reverse-geocode + Places Search via `/api/tomtom` (same server key / non-tile budget as drive-time). Nominatim / Google Places are labeled fallbacks. Keyless/budget = honest unavailable or fallback. |
 | **Area News** (retail then business headlines for focused camera / site) | **Ported** — Data Layers toggle (off by default); Sites-style widget; `/api/regional-brief?mode=area-news`. Empty/unavailable stay honest. |

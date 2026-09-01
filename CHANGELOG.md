@@ -16,6 +16,8 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   fallback when the Maps key allows. Demographics / zoning / PropertyCentral
   stay stubbed. Evaluation search quota shares `TOMTOM_DAILY_ROUTE_BUDGET` with
   drive-time — over limit degrades honestly (stale cache or fallback / message).
+  Research brief includes **Delete pin** (confirm) to remove one entity from the
+  globe and IndexedDB layer without RESET; Delete key when the card is open.
 - **Area News** Data Layers toggle (off by default): Sites-style widget with
   retail-then-business headlines for the focused camera area (selected Sites
   pin when open). Reuses `/api/regional-brief?mode=area-news` (Nominatim +
