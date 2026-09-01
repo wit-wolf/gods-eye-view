@@ -55,7 +55,8 @@ Kept layers report source and freshness honestly — including partial, delayed,
 - **🌐 Globe:** OSM imagery on cold start (fast). Turn on **3D tiles** in DISPLAY (or MAP SOURCE → Google 3D tiles) for Photorealistic buildings. Cape Town home opens high above the city bowl.
 - **🔥 Fires & quakes:** NASA FIRMS active fires and USGS earthquakes for environmental context on site work.
 - **🚗 Traffic / roads:** Without `TOMTOM_API_KEY` the Data Layers row is **Traffic (simulated)**. With TomTom it becomes live **Street Traffic**.
-- **✨ Bloom (DISPLAY):** Soft cinematic glow post-process — optional; costs GPU.
+- **✨ Bloom (DISPLAY):** Soft cinematic glow post-process — optional; costs GPU. Off by default.
+- **⚡ Fast (DISPLAY):** Performance preset for SA property work — bloom/sharpen off, 3D tiles off, stronger Sites clustering at overview, gentler DEMO paint, 30 fps cap.
 - **🌤 Weather:** Local weather readouts / cockpit WX where the globe already surfaces them.
 - **🔗 Share Links:** Camera and enabled layers serialize into a URL.
 - **🔍 SA search:** Location search uses browser Places API (New) with the same
@@ -81,7 +82,14 @@ npm install
 npm run dev -- --host localhost --port 4173
 ```
 
-3. Open **`http://localhost:4173`**. Cold start settles in under two seconds on a recent laptop (median 1.86 s in a point-in-time M5/Chrome capture — [docs/PERFORMANCE.md](docs/PERFORMANCE.md); a comparison baseline, not a hardware requirement). A first-run card offers to stage a mission for you — **Live Contacts**, **Space Missions**, **Environmental** — or leaves you to explore manually.
+For snappier SA property use (Sites DEMO, overview zooms):
+
+- Keep **3D tiles** off (DISPLAY / MAP SOURCE) — OSM imagery is the cold-start default.
+- Turn on DISPLAY **Fast** when screening many pins (stronger clustering, gentler paint, bloom/sharpen off, 30 fps).
+- Prefer production preview over Vite HMR when comparing feel: `npm run build && npm run preview`.
+- Leave Traffic / Area News / FIRMS off until needed — disabled layers do not network or animate.
+
+3. Open **`http://localhost:4173`**. Cold start settles in under two seconds on a recent laptop (median 1.86 s in a point-in-time M5/Chrome capture — [docs/PERFORMANCE.md](docs/PERFORMANCE.md); a comparison baseline, not a hardware requirement). A first-run card offers to stage a mission for you — **Sites**, **Environmental**, or explore manually.
 
 > [!TIP]
 > **Not a coder? Have an AI do this whole page for you.** A one-click installer is in the works — until then, install a coding agent ([Claude Code](https://claude.com/claude-code), [Codex](https://openai.com/codex/), [Cursor](https://cursor.com), or [Antigravity](https://antigravity.google)) and paste this:

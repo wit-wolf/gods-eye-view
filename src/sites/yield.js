@@ -68,16 +68,20 @@ export async function mapInBatches(items, {
   signal,
   work,
   onProgress,
+  idleTimeoutMs = 32,
 } = {}) {
   const list = Array.isArray(items) ? items : [];
   const total = list.length;
   const size = Math.max(1, Math.floor(batchSize) || 120);
+  const yieldMs = Number.isFinite(idleTimeoutMs) && idleTimeoutMs > 0
+    ? idleTimeoutMs
+    : 32;
   for (let i = 0; i < total; i += size) {
     if (signal?.aborted) throw abortError();
     const batch = list.slice(i, i + size);
     await work(batch, i, total);
     onProgress?.({ done: Math.min(i + batch.length, total), total });
-    if (i + size < total) await yieldToMain({ signal });
+    if (i + size < total) await yieldToMain({ signal, timeoutMs: yieldMs });
   }
 }
 

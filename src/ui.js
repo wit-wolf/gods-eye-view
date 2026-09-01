@@ -164,6 +164,10 @@ import {
 import { sampleMeshFloorCells } from './data/meshFloorSampler.js';
 import { holdContinuousRender, releaseContinuousRender, governorRequestRender } from './renderGovernor.js';
 import {
+  isPerformanceFastPreset,
+  setPerformanceFastPreset,
+} from './sites/sitesPerformance.js';
+import {
   setScopeMaskEnabled,
   isScopeMaskEnabled,
   setScopeMaskFeather,
@@ -2270,6 +2274,9 @@ export class StyleManager {
     this._mapStackChips = document.getElementById('map-stack-chips');
     this._mapStackStatus = document.getElementById('map-stack-status');
     this._google3dBtn = document.getElementById('google-3d-toggle');
+    this._perfFastBtn = document.getElementById('perf-fast-toggle');
+    this._performanceFast = false;
+    this._fastRestore = null;
     this._lastNonPhotorealStackId = DEFAULT_MAP_STACK_ID;
     this._cleanViewBtn = document.getElementById('clean-view-toggle');
     this._cleanViewExitBtn = document.getElementById('clean-view-exit');
@@ -3600,7 +3607,67 @@ export class StyleManager {
       void this._setMapStack('photoreal');
     });
 
+    this._perfFastBtn?.addEventListener('click', () => {
+      this.shareLinkManager?.claimRestoreLane?.('visual');
+      this._setPerformanceFast(!this._performanceFast);
+    });
+    this._syncPerformanceFastUi();
+
     this._renderMapStackState(this.mapStackController.getState());
+  }
+
+  /**
+   * DISPLAY Fast preset — cuts GPU/post cost and asks Sites for stronger
+   * clustering + gentler DEMO paint. Does not remove Sites features.
+   * @param {boolean} enabled
+   * @returns {void}
+   */
+  _setPerformanceFast(enabled) {
+    const next = Boolean(enabled);
+    if (next === this._performanceFast) {
+      this._syncPerformanceFastUi();
+      return;
+    }
+    if (next) {
+      this._fastRestore = {
+        bloom: this.bloomEnabled,
+        bloomIntensity: this._getBloomIntensity?.() ?? 0,
+        sharpen: this.sharpenEnabled,
+        targetFrameRate: this.viewer?.targetFrameRate || 60,
+      };
+      this._setBloomEnabled(false);
+      this._setSharpenEnabled(false);
+      if (this.mapStackController?.getActiveId() === 'photoreal') {
+        void this._setMapStack(this._lastNonPhotorealStackId || DEFAULT_MAP_STACK_ID, { syncShare: false });
+      }
+      if (this.viewer) this.viewer.targetFrameRate = 30;
+      setPerformanceFastPreset(true);
+    } else {
+      setPerformanceFastPreset(false);
+      if (this.viewer) {
+        this.viewer.targetFrameRate = this._fastRestore?.targetFrameRate || 60;
+      }
+      if (this._fastRestore) {
+        if (typeof this._fastRestore.bloomIntensity === 'number' && this._bloomSlider) {
+          this._setBloomIntensity(clampBloomIntensity(this._fastRestore.bloomIntensity), { syncShare: false });
+        }
+        this._setBloomEnabled(Boolean(this._fastRestore.bloom));
+        this._setSharpenEnabled(Boolean(this._fastRestore.sharpen));
+      }
+      this._fastRestore = null;
+    }
+    this._performanceFast = next;
+    this._syncPerformanceFastUi();
+    governorRequestRender('perf-fast');
+    this._syncShareState?.();
+  }
+
+  /** Sync Fast toggle button to the Sites performance flag. */
+  _syncPerformanceFastUi() {
+    const on = this._performanceFast || isPerformanceFastPreset();
+    this._performanceFast = on;
+    this._perfFastBtn?.classList.toggle('active', on);
+    this._perfFastBtn?.setAttribute('aria-pressed', String(on));
   }
 
   /**

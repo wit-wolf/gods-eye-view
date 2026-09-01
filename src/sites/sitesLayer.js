@@ -28,6 +28,16 @@ import {
   sitesClusterBubbleSize,
 } from './sitesClusterStyle.js';
 import {
+  SITES_FIRST_PAINT_CAP_DEFAULT,
+  SITES_PAINT_BATCH_DEFAULT,
+  clusterParamsForHeight,
+  isPerformanceFastPreset,
+  onPerformanceFastChange,
+  prioritizeFeaturesNear,
+  sitesPaintBatchSize,
+  sitesPaintYieldMs,
+} from './sitesPerformance.js';
+import {
   DEMO_GEOJSON_GZ_URL,
   DEMO_KMZ_URL,
   DEMO_LAYER_ID,
@@ -52,10 +62,10 @@ import {
 } from './yield.js';
 
 export const SITES_LAYER_ID = 'sites';
-/** First DEMO paint size before streaming the remainder. */
-export const SITES_FIRST_PAINT_CAP = 500;
-/** Entities created per idle batch after first paint. */
-export const SITES_PAINT_BATCH = 100;
+/** First DEMO/import paint size before streaming the remainder. */
+export const SITES_FIRST_PAINT_CAP = SITES_FIRST_PAINT_CAP_DEFAULT;
+/** Entities created per idle batch after first paint (gentler default). */
+export const SITES_PAINT_BATCH = SITES_PAINT_BATCH_DEFAULT;
 
 const SITES_COLOR = SITES_PIN_COLOR;
 /** Dark teal fill for cluster discs — white count stays readable. */
@@ -95,6 +105,14 @@ let _placeMode = false;
 let _placeModeKeyHandler = null;
 /** @type {HTMLElement|null} */
 let _placeHint = null;
+/** @type {(() => void)|null} */
+let _removeCameraLod = null;
+/** @type {(() => void)|null} */
+let _unsubFastPreset = null;
+/** Last applied cluster LOD (avoid thrashing). */
+let _lastClusterLodKey = '';
+/** @type {ReturnType<typeof setTimeout>|null} */
+let _lodTimer = null;
 
 function notifyRowControls() {
   try { _rowControlsListener?.(); } catch { /* panel refresh is best-effort */ }
@@ -254,6 +272,7 @@ function clearDataSource() {
     try { _removeClusterListener(); } catch { /* ignore */ }
     _removeClusterListener = null;
   }
+  _lastClusterLodKey = '';
   if (_dataSource) {
     try {
       // Empty first so a raced add() against this collection cannot keep
@@ -270,17 +289,17 @@ function clearDataSource() {
 /**
  * Style Cesium EntityCluster markers as circular count bubbles.
  * Single pins keep the teal point style from `styleEntity`.
+ * Cluster density follows camera height (SA overview → clusters only).
  * @param {import('cesium').CustomDataSource} dataSource
  */
 function installSitesClusterStyling(dataSource) {
   if (!dataSource?.clustering || _removeClusterListener) return;
   const clustering = dataSource.clustering;
   clustering.enabled = true;
-  clustering.pixelRange = 18;
-  clustering.minimumClusterSize = 4;
   clustering.clusterPoints = true;
   clustering.clusterLabels = true;
   clustering.clusterBillboards = true;
+  applySitesClusterLod({ force: true });
 
   _removeClusterListener = clustering.clusterEvent.addEventListener((clusteredEntities, cluster) => {
     const count = Array.isArray(clusteredEntities) ? clusteredEntities.length : 0;
@@ -327,19 +346,82 @@ function installSitesClusterStyling(dataSource) {
       cluster.label.pixelOffset = new Cesium.Cartesian2(0, 0);
     }
   });
+}
 
-  // Force a re-cluster so the listener styles existing aggregates immediately.
-  const range = clustering.pixelRange;
+/**
+ * Read camera height above ellipsoid (m). Falls back to high (country) LOD.
+ * @returns {number}
+ */
+function cameraHeightM() {
+  try {
+    const h = _viewer?.camera?.positionCartographic?.height;
+    if (Number.isFinite(h) && h > 0) return h;
+  } catch { /* ignore */ }
+  return 500_000;
+}
+
+/**
+ * Apply zoom-dependent cluster density. Country/province → large pixelRange +
+ * high minimumClusterSize so DEMO does not draw thousands of pins at SA overview.
+ * @param {{force?:boolean}} [opts]
+ */
+function applySitesClusterLod({ force = false } = {}) {
+  const ds = _dataSource;
+  if (!ds?.clustering) return;
+  const { pixelRange, minimumClusterSize } = clusterParamsForHeight(cameraHeightM(), {
+    fast: isPerformanceFastPreset(),
+  });
+  const key = `${pixelRange}:${minimumClusterSize}`;
+  if (!force && key === _lastClusterLodKey) return;
+  _lastClusterLodKey = key;
+  const clustering = ds.clustering;
+  const wasEnabled = clustering.enabled;
+  clustering.minimumClusterSize = minimumClusterSize;
+  // Touch pixelRange (even 0→value) to force Cesium to rebuild aggregates.
   clustering.pixelRange = 0;
-  clustering.pixelRange = range;
+  clustering.pixelRange = pixelRange;
+  if (!wasEnabled) clustering.enabled = true;
+  governorRequestRender('sites:cluster-lod');
+}
+
+function scheduleSitesClusterLod() {
+  if (_lodTimer) clearTimeout(_lodTimer);
+  _lodTimer = setTimeout(() => {
+    _lodTimer = null;
+    if (_enabled && _dataSource) applySitesClusterLod();
+  }, 120);
+}
+
+function installClusterLodWatcher() {
+  if (!_viewer || _removeCameraLod) return;
+  const cam = _viewer.camera;
+  const onMove = () => scheduleSitesClusterLod();
+  const removeChanged = cam.changed.addEventListener(onMove);
+  const removeMoveEnd = cam.moveEnd.addEventListener(() => applySitesClusterLod());
+  _removeCameraLod = () => {
+    try { removeChanged(); } catch { /* ignore */ }
+    try { removeMoveEnd(); } catch { /* ignore */ }
+    if (_lodTimer) {
+      clearTimeout(_lodTimer);
+      _lodTimer = null;
+    }
+    _removeCameraLod = null;
+  };
+  applySitesClusterLod({ force: true });
+}
+
+function removeClusterLodWatcher() {
+  _removeCameraLod?.();
+  _removeCameraLod = null;
 }
 
 function ensureDataSource() {
   if (_dataSource) return _dataSource;
   const ds = new Cesium.CustomDataSource('Sites');
   ds.clustering.enabled = true;
-  ds.clustering.pixelRange = 18;
-  ds.clustering.minimumClusterSize = 4;
+  const { pixelRange, minimumClusterSize } = clusterParamsForHeight(cameraHeightM());
+  ds.clustering.pixelRange = pixelRange;
+  ds.clustering.minimumClusterSize = minimumClusterSize;
   ds.show = _enabled;
   _viewer.dataSources.add(ds);
   _dataSource = ds;
@@ -481,7 +563,8 @@ function addFeatureEntity(feature, index) {
 
 /**
  * Paint features in batches. First `firstPaint` entities land ASAP; the rest
- * stream during idle time.
+ * stream during idle time. Clustering is paused during bulk create so Cesium
+ * does not rebuild aggregates after every batch.
  * @param {object[]} features
  * @param {object} options
  */
@@ -489,7 +572,8 @@ async function paintFeatures(features, {
   signal,
   generation,
   firstPaint = SITES_FIRST_PAINT_CAP,
-  batchSize = SITES_PAINT_BATCH,
+  batchSize = sitesPaintBatchSize({ streaming: false }),
+  streaming = false,
 } = {}) {
   if (!_viewer || _destroyed) return;
   const list = dedupeFeaturesByUid(Array.isArray(features) ? features : []);
@@ -497,67 +581,84 @@ async function paintFeatures(features, {
   ensureDataSource();
   _dataSource.show = _enabled;
 
+  const effectiveBatch = batchSize || sitesPaintBatchSize({ streaming });
+  const yieldMs = sitesPaintYieldMs({ streaming });
   const immediate = list.slice(0, firstPaint);
   const remainder = list.slice(firstPaint);
 
-  setBusy('painting', null, `Painting ${Math.min(immediate.length, list.length)}/${list.length}…`);
-  await mapInBatches(immediate, {
-    batchSize,
-    signal,
-    work: async (batch, startIndex) => {
-      if (generation !== _paintGeneration) throw abortErr();
-      for (let i = 0; i < batch.length; i++) {
-        if (generation !== _paintGeneration) throw abortErr();
-        addFeatureEntity(batch[i], startIndex + i);
-      }
-      _count = _featureByUid.size;
-    },
-    onProgress: ({ done }) => {
-      if (generation !== _paintGeneration) return;
-      _count = _featureByUid.size;
-      setBusy('painting', null, `Painting ${done}/${list.length}…`);
-      governorRequestRender('sites:first-paint');
-    },
-  });
-  _count = _featureByUid.size;
-  _lastUpdate = Date.now();
-  notifyRowControls();
-  governorRequestRender('sites:first-paint');
-  await yieldToMain({ signal });
+  const clustering = _dataSource.clustering;
+  const restoreClustering = clustering?.enabled !== false;
+  if (clustering) clustering.enabled = false;
 
-  if (!remainder.length) {
+  try {
+    setBusy('painting', null, `Painting ${Math.min(immediate.length, list.length)}/${list.length}…`);
+    await mapInBatches(immediate, {
+      batchSize: effectiveBatch,
+      signal,
+      idleTimeoutMs: yieldMs,
+      work: async (batch, startIndex) => {
+        if (generation !== _paintGeneration) throw abortErr();
+        for (let i = 0; i < batch.length; i++) {
+          if (generation !== _paintGeneration) throw abortErr();
+          addFeatureEntity(batch[i], startIndex + i);
+        }
+        _count = _featureByUid.size;
+      },
+      onProgress: ({ done }) => {
+        if (generation !== _paintGeneration) return;
+        _count = _featureByUid.size;
+        setBusy('painting', null, `Painting ${done}/${list.length}…`);
+        governorRequestRender('sites:first-paint');
+      },
+    });
+    _count = _featureByUid.size;
+    _lastUpdate = Date.now();
+    notifyRowControls();
+    governorRequestRender('sites:first-paint');
+    await yieldToMain({ signal, timeoutMs: yieldMs });
+
+    if (!remainder.length) {
+      setBusy(_count ? 'nominal' : 'empty');
+      return;
+    }
+
+    const streamBatch = sitesPaintBatchSize({ streaming: true });
+    const streamYield = sitesPaintYieldMs({ streaming: true });
+    await mapInBatches(remainder, {
+      batchSize: streamBatch,
+      signal,
+      idleTimeoutMs: streamYield,
+      onProgress: ({ done }) => {
+        if (generation !== _paintGeneration) return;
+        _count = _featureByUid.size;
+        setBusy(
+          'painting',
+          null,
+          `Painting ${Math.min(firstPaint + done, list.length)}/${list.length}…`,
+        );
+        governorRequestRender('sites:paint-batch');
+      },
+      work: async (batch, startIndex) => {
+        if (generation !== _paintGeneration) throw abortErr();
+        for (let i = 0; i < batch.length; i++) {
+          if (generation !== _paintGeneration) throw abortErr();
+          addFeatureEntity(batch[i], firstPaint + startIndex + i);
+        }
+        _count = _featureByUid.size;
+      },
+    });
+
+    if (generation !== _paintGeneration) return;
+    _count = _featureByUid.size;
+    _lastUpdate = Date.now();
     setBusy(_count ? 'nominal' : 'empty');
-    return;
+    governorRequestRender('sites:paint-done');
+  } finally {
+    if (clustering && restoreClustering) {
+      clustering.enabled = true;
+      applySitesClusterLod({ force: true });
+    }
   }
-
-  await mapInBatches(remainder, {
-    batchSize,
-    signal,
-    onProgress: ({ done, total }) => {
-      if (generation !== _paintGeneration) return;
-      _count = _featureByUid.size;
-      setBusy(
-        'painting',
-        null,
-        `Painting ${Math.min(firstPaint + done, list.length)}/${list.length}…`,
-      );
-      governorRequestRender('sites:paint-batch');
-    },
-    work: async (batch, startIndex) => {
-      if (generation !== _paintGeneration) throw abortErr();
-      for (let i = 0; i < batch.length; i++) {
-        if (generation !== _paintGeneration) throw abortErr();
-        addFeatureEntity(batch[i], firstPaint + startIndex + i);
-      }
-      _count = _featureByUid.size;
-    },
-  });
-
-  if (generation !== _paintGeneration) return;
-  _count = _featureByUid.size;
-  _lastUpdate = Date.now();
-  setBusy(_count ? 'nominal' : 'empty');
-  governorRequestRender('sites:paint-done');
 }
 
 async function loadCachedOrPromptEmpty() {
@@ -1012,31 +1113,57 @@ async function runDemoLoad() {
     }
 
     // Append features not already drawn (preview∪full share stable _uids).
-    const extra = dedupeFeaturesByUid(full.features).filter((f) => {
+    // Near-camera / Cape Town first; smaller idle batches so the globe stays responsive.
+    let extra = dedupeFeaturesByUid(full.features).filter((f) => {
       const uid = f.properties?._uid;
       return uid && !hasEntityId(uid);
     });
+    try {
+      const carto = _viewer?.camera?.positionCartographic;
+      if (carto) {
+        extra = prioritizeFeaturesNear(
+          extra,
+          Cesium.Math.toDegrees(carto.longitude),
+          Cesium.Math.toDegrees(carto.latitude),
+        );
+      } else {
+        extra = prioritizeFeaturesNear(extra, 18.42, -33.92);
+      }
+    } catch {
+      extra = prioritizeFeaturesNear(extra, 18.42, -33.92);
+    }
     if (extra.length) {
       _totalPlanned = _count + extra.length;
       setBusy('painting', null, `Painting ${_count}/${_totalPlanned}…`);
-      await mapInBatches(extra, {
-        batchSize: SITES_PAINT_BATCH,
-        signal,
-        work: async (batch) => {
-          if (generation !== _paintGeneration) throw abortErr();
-          for (const feature of batch) {
+      const clustering = _dataSource?.clustering;
+      const restoreClustering = clustering?.enabled !== false;
+      if (clustering) clustering.enabled = false;
+      try {
+        await mapInBatches(extra, {
+          batchSize: sitesPaintBatchSize({ streaming: true }),
+          signal,
+          idleTimeoutMs: sitesPaintYieldMs({ streaming: true }),
+          work: async (batch) => {
             if (generation !== _paintGeneration) throw abortErr();
-            addFeatureEntity(feature, _featureByUid.size);
-          }
-          _count = _featureByUid.size;
-        },
-        onProgress: () => {
-          if (generation !== _paintGeneration) return;
-          _count = _featureByUid.size;
-          setBusy('painting', null, `Painting ${_count}/${_totalPlanned}…`);
-          governorRequestRender('sites:paint-batch');
-        },
-      });
+            for (const feature of batch) {
+              if (generation !== _paintGeneration) throw abortErr();
+              addFeatureEntity(feature, _featureByUid.size);
+            }
+            _count = _featureByUid.size;
+          },
+          onProgress: () => {
+            if (generation !== _paintGeneration) return;
+            _count = _featureByUid.size;
+            setBusy('painting', null, `Painting ${_count}/${_totalPlanned}…`);
+            governorRequestRender('sites:paint-batch');
+          },
+        });
+      } finally {
+        if (clustering && restoreClustering) {
+          clustering.enabled = true;
+          applySitesClusterLod({ force: true });
+        }
+      }
     }
     if (generation !== _paintGeneration) return;
     _count = _featureByUid.size;
@@ -1228,8 +1355,15 @@ const sitesLayer = {
     installDropTarget();
     ensureFileInput();
     ensurePlaceHint();
+    installClusterLodWatcher();
+    if (!_unsubFastPreset) {
+      _unsubFastPreset = onPerformanceFastChange(() => {
+        if (_enabled && _dataSource) applySitesClusterLod({ force: true });
+      });
+    }
     if (_dataSource) {
       _dataSource.show = true;
+      applySitesClusterLod({ force: true });
       setBusy(_count ? 'nominal' : 'empty', null, _count ? '' : 'Click DEMO, IMPORT, or PIN');
     } else {
       await loadCachedOrPromptEmpty();
@@ -1241,6 +1375,7 @@ const sitesLayer = {
     _enabled = false;
     setPlaceMode(false);
     cancelLoad();
+    removeClusterLodWatcher();
     if (_dataSource) _dataSource.show = false;
     clearSelectedEntityContextForLayer(SITES_LAYER_ID);
     closeSiteCard();
@@ -1254,6 +1389,8 @@ const sitesLayer = {
     if (_destroyed) return;
     _destroyed = true;
     this.disable();
+    _unsubFastPreset?.();
+    _unsubFastPreset = null;
     setSiteCardNameChangeListener(null);
     _dropCleanup?.();
     if (_clickHandler) {
@@ -1291,6 +1428,9 @@ export function __sitesTestHooks() {
 /** Test helpers */
 export function _resetSitesLayerForTest() {
   cancelLoad();
+  removeClusterLodWatcher();
+  _unsubFastPreset?.();
+  _unsubFastPreset = null;
   _viewer = null;
   _enabled = false;
   _destroyed = false;
@@ -1310,4 +1450,5 @@ export function _resetSitesLayerForTest() {
   _featureByUid = new Map();
   _catalog = [];
   _paintGeneration = 0;
+  _lastClusterLodKey = '';
 }

@@ -147,7 +147,7 @@ async function init() {
         document.body.appendChild(el);
         return el;
       })(),
-      msaaSamples: 4,
+      msaaSamples: 2,
       contextOptions: {
         webgl: {
           preserveDrawingBuffer: true,

@@ -35,6 +35,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Changed
 
+- **Sites performance (SA overview):** cluster density scales with camera height —
+  country/province views use a much larger `pixelRange` and `minimumClusterSize`
+  so DEMO shows cluster bubbles instead of thousands of individual pins.
+  Clustering is paused during bulk paint, then rebuilt once. DEMO streams the
+  remainder in gentler idle batches, near-camera first. MSAA default lowered
+  to 2×; bloom stays off. DISPLAY gains a **Fast** preset (bloom/sharpen off,
+  3D tiles off, stronger clustering, smaller paint batches, 30 fps cap).
 - Sites **cluster counts** render as circular teal bubbles (count centered on a
   dark disc with Sites outline) instead of bare white numerals; size tiers by
   count. Zoom-in still de-clusters to single teal pins.
