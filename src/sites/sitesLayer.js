@@ -1505,6 +1505,7 @@ export function __sitesTestHooks() {
     setPlaceMode,
     pickLatLonFromClick,
     makeDroppedUid,
+    deleteSiteFeature,
   };
 }
 
