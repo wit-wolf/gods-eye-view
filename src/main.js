@@ -182,22 +182,22 @@ async function init() {
     viewer.scene.skyAtmosphere.saturationShift = -0.12;
     viewer.scene.skyAtmosphere.brightnessShift = -0.08;
 
-    loaderStatus.textContent = 'Loading Google 3D Tiles...';
+    loaderStatus.textContent = 'Preparing map...';
     let tileset = null;
     try {
-      // Load Google Photorealistic 3D Tiles
+      // Load Google Photorealistic 3D Tiles for the opt-in DISPLAY toggle.
+      // Cold start uses OSM / imagery by default (performance); tiles stay
+      // available so the operator can turn 3D buildings on when wanted.
       tileset = await Cesium.createGooglePhotorealistic3DTileset({
         onlyUsingWithGoogleGeocoder: true,
       });
+      tileset.show = false;
       viewer.scene.primitives.add(tileset);
-      // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
-      // Google Photorealistic 3D Tiles provide their own terrain/elevation.
-      viewer.scene.globe.show = false;
+      viewer.scene.globe.show = true;
     } catch (tileError) {
       console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
       const tileErrorDetail = describeError(tileError);
       loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
-      // Keep Cesium globe visible as fallback instead of aborting the app.
       viewer.scene.globe.show = true;
     }
 
@@ -206,7 +206,7 @@ async function init() {
     const mapStackController = new MapStackController(viewer, {
       googleTileset: tileset,
       cesiumToken,
-      initialStack: tileset ? 'photoreal' : 'osm',
+      initialStack: 'osm',
       // Task 5 (height-datum fix): rebroadcast stack changes as a window
       // CustomEvent so data layers (CCTV per-regime ground resolution) can
       // react without coupling MapStackController to layer modules. Fires on
@@ -217,7 +217,7 @@ async function init() {
       },
       onError: (message) => console.warn('[MapStack]', message),
     });
-    await mapStackController.setStack(tileset ? 'photoreal' : 'osm', { silent: true });
+    await mapStackController.setStack('osm', { silent: true });
 
     // Initialize the style manager (post-processing, HUD, locations, share links)
     const styleManager = new StyleManager(viewer, { mapStackController });

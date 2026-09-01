@@ -1,5 +1,10 @@
 import * as Cesium from 'cesium';
-import { CITY_POIS, DEFAULT_HOME_CITY_ID, flyToLandmark } from './locations.js';
+import {
+  CITY_POIS,
+  DEFAULT_HOME_CITY_ID,
+  flyToLandmark,
+  flyToPresetLocation,
+} from './locations.js';
 
 /**
  * Camera presets for notable locations.
@@ -31,10 +36,11 @@ export const CAMERA_PRESETS = {
     },
   },
   'cape-town': {
-    destination: Cesium.Cartesian3.fromDegrees(18.4107, -33.9625, 1600),
+    // Metro overview height — above Table Mountain / city bowl, not buried in it.
+    destination: Cesium.Cartesian3.fromDegrees(18.45, -33.92, 22000),
     orientation: {
       heading: Cesium.Math.toRadians(0),
-      pitch: Cesium.Math.toRadians(-22),
+      pitch: Cesium.Math.toRadians(-45),
       roll: 0.0,
     },
   },
@@ -57,15 +63,18 @@ export function flyToPreset(viewer, presetName, duration = 3.0) {
 
 /**
  * Cinematic first-run fly-in to the fork's default home city (Cape Town via
- * the ZA city pack). Falls back to Austin if the pack is missing.
+ * the ZA city pack). Uses the city overview bounds so the opening view sits
+ * above the mountains / city bowl — not the close Table Mountain landmark range.
  */
 export function flyToDefaultHome(viewer) {
-  const city = CITY_POIS[DEFAULT_HOME_CITY_ID] || CITY_POIS.austin;
+  const cityId = DEFAULT_HOME_CITY_ID;
+  const city = CITY_POIS[cityId] || CITY_POIS.austin;
   const poi = city?.pois?.[0];
   if (!poi) return;
 
+  // Start high over the home city, then settle into the metro overview frame.
   viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(poi.lon, poi.lat, 25000),
+    destination: Cesium.Cartesian3.fromDegrees(poi.lon, poi.lat, 120000),
     orientation: {
       heading: Cesium.Math.toRadians(0),
       pitch: Cesium.Math.toRadians(-90),
@@ -74,9 +83,16 @@ export function flyToDefaultHome(viewer) {
   });
 
   setTimeout(() => {
+    if (city.viewBounds) {
+      flyToPresetLocation(viewer, cityId, {
+        viewMode: 'overview',
+        duration: 4.0,
+      });
+      return;
+    }
     flyToLandmark(viewer, poi.lat, poi.lon, {
-      range: poi.alt,
-      pitch: poi.pitch,
+      range: Math.max(Number(poi.alt) || 0, 18000),
+      pitch: -40,
       heading: poi.heading || 0,
       buildingHeight: poi.buildingHeight || 30,
       buildingBounds: poi.buildingBounds || null,

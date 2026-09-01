@@ -2,9 +2,9 @@
 
 # 🌐 Eagle Eye by Volee
 
-### A photoreal property globe — Sites, weather, and fires on Google 3D Tiles.
+### A property globe — Sites, weather, and fires. Google 3D tiles optional.
 
-**Eagle Eye** is the product line; **Volee** is the company. This fork’s property / tenant-rep globe lives in [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (upstream *God's Eye View*; repo slug unchanged). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: Google Photorealistic 3D Tiles, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
+**Eagle Eye** is the product line; **Volee** is the company. This fork’s property / tenant-rep globe lives in [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (upstream *God's Eye View*; repo slug unchanged). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: OSM / Bing imagery by default with an opt-in **Google Photorealistic 3D Tiles** toggle, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
 
 *No place left behind.*
 
@@ -51,9 +51,10 @@ Kept layers report source and freshness honestly — including partial, delayed,
 </div>
 
 - **📍 Sites:** KMZ/KML import, November demo pins, clickable research brief (KML fields + nearby pins + notes — no Genius scores).
-- **🌐 Photoreal globe:** Google Photorealistic 3D Tiles with South Africa city fly-tos (Cape Town home).
+- **🌐 Globe:** OSM imagery on cold start (fast). Turn on **3D tiles** in DISPLAY (or MAP SOURCE → Google 3D tiles) for Photorealistic buildings. Cape Town home opens high above the city bowl.
 - **🔥 Fires & quakes:** NASA FIRMS active fires and USGS earthquakes for environmental context on site work.
-- **🚗 Traffic / roads:** TomTom/OSM road flow when configured (not CCTV).
+- **🚗 Traffic / roads:** Without `TOMTOM_API_KEY` the Data Layers row is **Traffic (simulated)**. With TomTom it becomes live **Street Traffic**.
+- **✨ Bloom (DISPLAY):** Soft cinematic glow post-process — optional; costs GPU.
 - **🌤 Weather:** Local weather readouts / cockpit WX where the globe already surfaces them.
 - **🔗 Share Links:** Camera and enabled layers serialize into a URL.
 - **🔍 SA search:** Location search uses browser Places API (New) with the same

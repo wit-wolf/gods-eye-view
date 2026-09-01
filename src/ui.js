@@ -27,6 +27,7 @@ import {
   LayerStateCoordinator,
 } from './data/layerState.js';
 import { renderMapStackChips, syncMapStackChips } from './mapStackChips.js';
+import { DEFAULT_MAP_STACK_ID } from './mapStackController.js';
 import { OrbitController } from './orbit.js';
 import {
   isProductFeatureEnabled,
@@ -2268,6 +2269,8 @@ export class StyleManager {
     this._scopeFeatherValue = document.getElementById('scope-feather-value');
     this._mapStackChips = document.getElementById('map-stack-chips');
     this._mapStackStatus = document.getElementById('map-stack-status');
+    this._google3dBtn = document.getElementById('google-3d-toggle');
+    this._lastNonPhotorealStackId = DEFAULT_MAP_STACK_ID;
     this._cleanViewBtn = document.getElementById('clean-view-toggle');
     this._cleanViewExitBtn = document.getElementById('clean-view-exit');
     this._dataPanel = document.getElementById('data-panel');
@@ -3578,11 +3581,23 @@ export class StyleManager {
    * @returns {void}
    */
   _initMapStackControl() {
-    if (!this._mapStackChips || !this.mapStackController) return;
+    if (!this.mapStackController) return;
 
-    renderMapStackChips(this._mapStackChips, this.mapStackController.getStacks(), {
-      activeId: this.mapStackController.getActiveId(),
-      onSelect: (stackId) => { this._setMapStack(stackId); },
+    if (this._mapStackChips) {
+      renderMapStackChips(this._mapStackChips, this.mapStackController.getStacks(), {
+        activeId: this.mapStackController.getActiveId(),
+        onSelect: (stackId) => { this._setMapStack(stackId); },
+      });
+    }
+
+    this._google3dBtn?.addEventListener('click', () => {
+      const active = this.mapStackController.getActiveId();
+      if (active === 'photoreal') {
+        void this._setMapStack(this._lastNonPhotorealStackId || DEFAULT_MAP_STACK_ID);
+        return;
+      }
+      this._lastNonPhotorealStackId = active || DEFAULT_MAP_STACK_ID;
+      void this._setMapStack('photoreal');
     });
 
     this._renderMapStackState(this.mapStackController.getState());
@@ -3610,15 +3625,26 @@ export class StyleManager {
   }
 
   /**
-   * Syncs the map stack chip row and status chip with controller state. The
-   * lit chip always follows `state.activeId`, never the click — a rejected or
-   * superseded switch therefore leaves the genuinely active stack lit.
+   * Syncs the map stack chip row, DISPLAY 3D-tiles toggle, and status chip.
    * @param {object} state - Map stack controller state.
    * @returns {void}
    */
   _renderMapStackState(state) {
     if (!state) return;
     syncMapStackChips(this._mapStackChips, state.activeId);
+    if (state.activeId && state.activeId !== 'photoreal') {
+      this._lastNonPhotorealStackId = state.activeId;
+    }
+    const photorealOn = state.activeId === 'photoreal';
+    const photorealAvailable = this.mapStackController?.isStackAvailable?.('photoreal') !== false;
+    this._google3dBtn?.classList.toggle('active', photorealOn);
+    this._google3dBtn?.setAttribute('aria-pressed', String(photorealOn));
+    if (this._google3dBtn) {
+      this._google3dBtn.disabled = !photorealAvailable && !photorealOn;
+      this._google3dBtn.title = photorealAvailable
+        ? 'Google Photorealistic 3D Tiles — 3D buildings (off by default for performance)'
+        : 'Google 3D tiles unavailable';
+    }
     if (this._mapStackStatus) {
       const stack = state.activeStack;
       const label = state.status === 'switching'
@@ -3927,7 +3953,7 @@ export class StyleManager {
       scopeTerminusPct: getScopeTerminusOverride() == null
         ? null
         : Math.round(getScopeTerminusOverride() * 100),
-      mapStack: this.mapStackController?.getActiveId?.() || 'photoreal',
+      mapStack: this.mapStackController?.getActiveId?.() || DEFAULT_MAP_STACK_ID,
     });
   }
 
@@ -8704,7 +8730,7 @@ export class StyleManager {
         enabled: isScopeMaskEnabled(),
         featherPct: Math.round(getScopeMaskFeather() * 100),
       },
-      mapStack: this.mapStackController?.getActiveId?.() || 'photoreal',
+      mapStack: this.mapStackController?.getActiveId?.() || DEFAULT_MAP_STACK_ID,
       styleParams,
     };
   }
@@ -9922,8 +9948,10 @@ export class StyleManager {
     interruptCameraMotion('reset-globe');
     this._stopOrbit();
     this.cockpitView?.exit({ restoreTracking: false });
-    // Standard / reset view: property globe without the scope mask.
+    // Standard / reset view: property globe without the scope mask, and without
+    // Google 3D tiles (opt-in for performance).
     this._setScopeUiEnabled(false);
+    void this._setMapStack(DEFAULT_MAP_STACK_ID);
     try {
       militaryAwarenessLayer.releaseCameraOwnership?.({ origin: 'tool' });
     } catch {

@@ -14,6 +14,17 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
   remains in DISPLAY; share links with `sc=1` still restore ON).
 - Opening a Sites research brief auto-collapses DISPLAY and positions the card
   clear of the right-rail strip so property details stay readable.
+- **Google Photorealistic 3D Tiles default OFF** (OSM imagery cold start /
+  reset). DISPLAY has a clear **3D tiles** toggle; MAP SOURCE chips still
+  switch Google 3D / Bing / OSM. Share links with `map=photoreal` still restore
+  tiles ON.
+- Cold-start Cape Town home uses the city **overview** frame (high above the
+  bowl / Table Mountain), not the close landmark range.
+- Data Layers titles keyless traffic as **Traffic (simulated)** until a
+  `TOMTOM_API_KEY` is confirmed (then **Street Traffic**). Meta/chip already
+  said SIMULATED; the row name now matches.
+- **Bloom** (DISPLAY): soft cinematic glow post-process — optional, GPU cost.
+  Tooltip documents it; control unchanged.
 
 ## [Unreleased] — 2026-08-31
 

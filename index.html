@@ -428,7 +428,11 @@
         </div>
       </div>
     </div>
-    <div class="pp-toggle-group">
+      <div class="pp-toggle-group">
+      <button class="pp-toggle-btn" id="google-3d-toggle" title="Google Photorealistic 3D Tiles — 3D buildings (off by default for performance)" aria-pressed="false">
+        <span class="pp-icon material-symbols-outlined" aria-hidden="true">apartment</span>
+        <span class="pp-label">3D tiles</span>
+      </button>
       <button class="pp-toggle-btn" id="scope-toggle" title="Scope — the circular viewport mask" aria-pressed="false">
         <span class="pp-icon material-symbols-outlined" aria-hidden="true">adjust</span>
         <span class="pp-label">Scope</span>
@@ -455,7 +459,7 @@
       <span class="pp-label">Clean UI</span>
     </button>
     <div class="pp-toggle-group">
-      <button class="pp-toggle-btn" id="bloom-toggle" title="Bloom / Glow">
+      <button class="pp-toggle-btn" id="bloom-toggle" title="Bloom — soft cinematic glow post-process (GPU cost)">
         <span class="pp-icon">&#x2728;</span>
         <span class="pp-label">Bloom</span>
       </button>
@@ -531,7 +535,7 @@
       <section class="map-source-section" aria-labelledby="map-source-label">
         <div class="map-source-heading">
           <span id="map-source-label">MAP SOURCE</span>
-          <span id="map-stack-status" class="pp-stack-status" aria-live="polite">3D</span>
+          <span id="map-stack-status" class="pp-stack-status" aria-live="polite">OSM</span>
         </div>
         <div id="map-stack-chips" class="map-stack-chip-row" role="group" aria-label="Map source"></div>
       </section>
