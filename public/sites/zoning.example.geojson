@@ -8,7 +8,7 @@
         "zone_code": "EX-BUS",
         "zone_name": "EXAMPLE Business zone (Hemingways area)",
         "example": true,
-        "source_note": "Copy polygons into public/sites/zoning.geojson from a municipal SDF. Do not invent codes."
+        "source_note": "Copy polygons into public/sites/zoning.geojson (gitignored). If absent, Volo may bbox-query George Municipality Integrated Zoning. Do not invent codes."
       },
       "geometry": {
         "type": "Polygon",

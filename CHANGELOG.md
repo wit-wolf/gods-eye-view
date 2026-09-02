@@ -3,6 +3,24 @@
 This changelog records public product changes. For the authoritative description
 of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md).
 
+## [Unreleased] — 2026-09-02
+
+### Changed
+
+- Zoning / census sources (verified 2026-09-02): **no national zoning GeoJSON**.
+  Live `public/sites/zoning.geojson` and `census-wards.geojson` are **gitignored**
+  (committed templates: `zoning.example.geojson`, `census-wards.example.geojson`).
+  When local zoning is missing, research cards optionally bbox-query **George
+  Municipality Integrated Zoning** (CITP FeatureServer/16) via
+  `/api/george-zoning?lat=&lon=` — pin envelope + small `resultRecordCount`,
+  never the full ~54k layer. Attributes George Municipality; honest fail on
+  CORS/network → drop a GeoJSON extract. Demographics card states **Census 2022
+  small-area not public**; optional join on ward/`SAL_CODE` when a 2011
+  SAL/ward GeoJSON (+ SuperWEB2 CSV) is dropped locally — no invented LSM/
+  income. `DATA_SOURCES.md` lists George GIS, Cape Town Open Data zoning REST,
+  Joburg paid extract, Stats SA SuperWEB2, WCG Spatial Data Warehouse; does
+  **not** cite wazimap.co.za (404). Ancora live dump remains gitignored.
+
 ## [Unreleased] — 2026-09-01
 
 ### Added

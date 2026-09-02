@@ -18,6 +18,7 @@
  *  13. Weather effects — camera-local Open-Meteo observations without news/geocoding overhead
  *  14. Rocket launches — recent Launch Library 2 mission metadata
  *  15. Radio Browser — public-domain station directory and click counting
+ *  16. George zoning — bbox query against Integrated Zoning FeatureServer/16
  *
  * Also exposes Cesium and Google 3D Tiles API keys to the
  * client via `import.meta.env.*` defines.
@@ -2324,6 +2325,139 @@ function tomtomProxy() {
           sendJson(500, { error: 'proxy' });
         }
       });
+    },
+  };
+}
+
+/**
+ * George Municipality Integrated Zoning (CITP FeatureServer/16) bbox proxy.
+ *
+ * Upstream:
+ *   https://gis.george.gov.za/server/rest/services/Hosted/CITP/FeatureServer/16/query
+ *
+ * Never downloads the full ~54k polygon layer. Envelope around the open pin
+ * only (`resultRecordCount` capped). Browser hits same-origin
+ * `/api/george-zoning?lat=&lon=` so CORS is bypassed in Vite
+ * dev/preview; static hosts without this middleware fall through to the
+ * client's honest fail / local GeoJSON path.
+ *
+ * GET /api/george-zoning?lat=&lon= → GeoJSON FeatureCollection (+ attribution)
+ */
+function georgeZoningProxy() {
+  const UPSTREAM = 'https://gis.george.gov.za/server/rest/services/Hosted/CITP/FeatureServer/16/query';
+  /** ~275 m half-width at mid-latitudes — enough for a pin, far below full layer. */
+  const HALF_DEG = 0.0025;
+  const RESULT_RECORD_COUNT = 25;
+  const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+  /** @type {Map<string, {at:number, body:object}>} */
+  const memory = new Map();
+
+  function sendJson(res, status, obj, extraHeaders = {}) {
+    if (res.headersSent) return;
+    res.writeHead(status, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      ...extraHeaders,
+    });
+    res.end(JSON.stringify(obj));
+  }
+
+  async function fetchUpstream(lat, lon) {
+    const geometry = JSON.stringify({
+      xmin: lon - HALF_DEG,
+      ymin: lat - HALF_DEG,
+      xmax: lon + HALF_DEG,
+      ymax: lat + HALF_DEG,
+    });
+    const qs = new URLSearchParams({
+      geometry,
+      geometryType: 'esriGeometryEnvelope',
+      inSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects',
+      outFields: 'zoning,zoning_code,land_use,town',
+      returnGeometry: 'true',
+      outSR: '4326',
+      f: 'geojson',
+      resultRecordCount: String(RESULT_RECORD_COUNT),
+    });
+    const upstream = await fetch(`${UPSTREAM}?${qs}`, {
+      signal: AbortSignal.timeout(15000),
+      headers: { Accept: 'application/geo+json, application/json' },
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      const error = new Error(`upstream HTTP ${upstream.status}`);
+      error.upstreamStatus = upstream.status;
+      throw error;
+    }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('malformed upstream geojson');
+    }
+    if (!data || typeof data !== 'object') throw new Error('malformed upstream body');
+    return data;
+  }
+
+  function install(middlewares) {
+    middlewares.use('/api/george-zoning', async (req, res) => {
+      try {
+        if (req.method !== 'GET') {
+          sendJson(res, 405, { error: 'method' });
+          return;
+        }
+        const rawUrl = String(req.url || '');
+        const query = new URLSearchParams(
+          rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?') + 1) : '',
+        );
+        const lat = Number.parseFloat(query.get('lat') || '');
+        const lon = Number.parseFloat(query.get('lon') || '');
+        if (
+          ![lat, lon].every(Number.isFinite)
+          || lat < -90 || lat > 90
+          || lon < -180 || lon > 180
+        ) {
+          sendJson(res, 400, { error: 'invalid_origin' });
+          return;
+        }
+
+        const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+        const hit = memory.get(cacheKey);
+        if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+          sendJson(res, 200, hit.body, { 'x-george-zoning-cache': 'HIT' });
+          return;
+        }
+
+        const data = await fetchUpstream(lat, lon);
+        const body = {
+          type: data.type || 'FeatureCollection',
+          features: Array.isArray(data.features) ? data.features : [],
+          attribution: 'George Municipality Integrated Zoning (CITP)',
+          municipality: 'George Municipality',
+          query: { lat, lon, halfDegrees: HALF_DEG, resultRecordCount: RESULT_RECORD_COUNT },
+        };
+        memory.set(cacheKey, { at: Date.now(), body });
+        sendJson(res, 200, body, { 'x-george-zoning-cache': 'MISS' });
+      } catch (err) {
+        console.warn('[george-zoning-proxy]', err?.message || err);
+        sendJson(res, 502, {
+          error: 'upstream',
+          message:
+            'George zoning FeatureServer unavailable (network/CORS). '
+            + 'Drop a GeoJSON extract at public/sites/zoning.geojson.',
+        });
+      }
+    });
+  }
+
+  return {
+    name: 'george-zoning-proxy',
+    configureServer(server) {
+      install(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      install(server.middlewares);
     },
   };
 }
@@ -8074,6 +8208,7 @@ export default defineConfig(({ mode }) => {
       openSkyProxy(),
       celestrakProxy(),
       tomtomProxy(),
+      georgeZoningProxy(),
       firmsProxy(),
       rocketLaunchesProxy(),
       terrainHeightsProxy(),

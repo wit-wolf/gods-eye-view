@@ -359,8 +359,14 @@ function paintZoning(mount, zoning) {
     <dl class="site-card-identity">
       ${zoning.zoneName ? `<div><dt>Zone</dt><dd>${escapeHtml(zoning.zoneName)}</dd></div>` : ''}
       ${zoning.zoneCode ? `<div><dt>Code</dt><dd>${escapeHtml(zoning.zoneCode)}</dd></div>` : ''}
+      ${zoning.landUse ? `<div><dt>Land use</dt><dd>${escapeHtml(zoning.landUse)}</dd></div>` : ''}
+      ${zoning.town ? `<div><dt>Town</dt><dd>${escapeHtml(zoning.town)}</dd></div>` : ''}
+      ${zoning.municipality ? `<div><dt>Municipality</dt><dd>${escapeHtml(zoning.municipality)}</dd></div>` : ''}
     </dl>
     <p class="site-card-muted">${escapeHtml(zoning.message || 'Matched local zoning GeoJSON.')}</p>
+    ${zoning.sourceNote && zoning.source === 'george'
+      ? `<p class="site-card-muted">${escapeHtml(zoning.sourceNote)}</p>`
+      : ''}
   `;
 }
 
@@ -368,7 +374,7 @@ function paintDemographics(mount, demo) {
   if (!mount) return;
   const body = mount.querySelector('[data-site-demographics-body]') || mount;
   if (!demo || demo.status !== 'ok') {
-    body.innerHTML = `<p class="site-card-muted">${escapeHtml(demo?.message || 'Stats SA not wired — drop a ward/census GeoJSON to enable')}</p>`;
+    body.innerHTML = `<p class="site-card-muted">${escapeHtml(demo?.message || 'Census 2022 small-area not public; drop 2011 SAL/ward GeoJSON + SuperWEB2 CSV to enable.')}</p>`;
     return;
   }
   body.innerHTML = `
@@ -376,6 +382,9 @@ function paintDemographics(mount, demo) {
     <dl class="site-card-identity">
       ${demo.wardName ? `<div><dt>Ward</dt><dd>${escapeHtml(demo.wardName)}</dd></div>` : ''}
       ${demo.wardCode ? `<div><dt>Code</dt><dd>${escapeHtml(demo.wardCode)}</dd></div>` : ''}
+      ${demo.salCode && demo.salCode !== demo.wardCode
+        ? `<div><dt>SAL</dt><dd>${escapeHtml(demo.salCode)}</dd></div>`
+        : ''}
       ${demo.municipality ? `<div><dt>Municipality</dt><dd>${escapeHtml(demo.municipality)}</dd></div>` : ''}
     </dl>
     <p class="site-card-muted">${escapeHtml(demo.message || 'Matched ward GeoJSON. No LSM or income invented.')}</p>
@@ -545,12 +554,12 @@ export function openSiteCard({
 
     <section class="site-card-section" data-site-zoning>
       <div class="site-card-section-title">Zoning / SDF</div>
-      <p class="site-card-muted" data-site-zoning-body>Checking local zoning GeoJSON…</p>
+      <p class="site-card-muted" data-site-zoning-body>Checking local zoning GeoJSON or George bbox…</p>
     </section>
 
     <section class="site-card-section" data-site-demographics>
       <div class="site-card-section-title">Census / demographics</div>
-      <p class="site-card-muted" data-site-demographics-body>Checking ward / census GeoJSON…</p>
+      <p class="site-card-muted" data-site-demographics-body>Census 2022 small-area not public — checking local SAL/ward GeoJSON…</p>
     </section>
 
     <label class="site-card-field">

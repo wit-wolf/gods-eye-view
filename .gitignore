@@ -14,3 +14,7 @@ output/
 # Live Ancora / PropertyCentral occupancy dump — local only (privacy).
 # Commit ancora-centres.example.geojson; Werner drops the live file at this path.
 public/sites/ancora-centres.geojson
+
+# Operator-supplied municipal overlays — local only. Commit *.example.geojson templates.
+public/sites/zoning.geojson
+public/sites/census-wards.geojson

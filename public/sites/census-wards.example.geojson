@@ -1,15 +1,16 @@
 {
   "type": "FeatureCollection",
-  "name": "Census / ward polygons example",
+  "name": "Census / ward / SAL polygons example",
   "features": [
     {
       "type": "Feature",
       "properties": {
         "ward_code": "EX-WARD-01",
+        "SAL_CODE": "EX-SAL-0001",
         "ward_name": "EXAMPLE Ward (Hemingways area)",
         "municipality": "EXAMPLE Municipality",
         "example": true,
-        "source_note": "Copy Stats SA / municipal ward polygons into public/sites/census-wards.geojson. Never invent LSM or income."
+        "source_note": "Census 2022 small-area is not public. Drop 2011 SAL/ward GeoJSON + SuperWEB2 CSV into public/sites/census-wards.geojson (gitignored). Never invent LSM or income."
       },
       "geometry": {
         "type": "Polygon",
