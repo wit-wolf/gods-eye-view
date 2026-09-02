@@ -114,15 +114,16 @@ export class ShareLinkManager {
     // question and deliberately stays at 5.
     this._detectionOutsideOpacityPct = 1;
     this._celestialRingEnabled = false;
-    this._scopeEnabled = true;
+    this._scopeEnabled = false;
     // Feather opens on a soft 11% scope-mask edge (final value 2026-08-24,
     // superseding the 08-22 hard-crop and 08-23 8% rulings) — mirrors
     // SCOPE_FEATHER_RATIO_DEFAULT in scopeMask.js and the slider's markup value.
+    // Scope itself defaults OFF for Volo property viewing.
     this._scopeFeatherPct = 11;
     // null = the altitude-adaptive terminus (the default). A number pins the
     // outside-fill opacity as a percent, 94..100. (`sce`, 2026-08-17)
     this._scopeTerminusPct = null;
-    this._mapStack = 'photoreal';
+    this._mapStack = 'osm';
     this._layerStateProvider = null;
     this._panelStateProvider = null;
     this._styleParamStateProvider = null;
@@ -205,7 +206,9 @@ export class ShareLinkManager {
       // celestialRing.js.
       detectionOutsideOpacityPct: Math.max(0, Math.min(100, Math.round(parseOr(params.get('ko'), 5)))),
       celestialRing: params.has('cr') ? params.get('cr') === '1' : false,
-      scopeEnabled: params.has('sc') ? params.get('sc') === '1' : true,
+      // Absent `sc` → OFF (Volo property default). Explicit `sc=1` still
+      // restores a scoped share link.
+      scopeEnabled: params.has('sc') ? params.get('sc') === '1' : false,
       // Deliberately still 35 through both later default moves (0 on
       // 2026-08-22, 8 on 2026-08-23). This is the PARSE fallback for a link that
       // predates `scf` entirely, and such a link was authored when 35 was what
@@ -224,7 +227,7 @@ export class ShareLinkManager {
       scopeTerminusPct: params.has('sce')
         ? clampScopeTerminusPct(params.get('sce'))
         : null,
-      mapStack: params.get('map') || 'photoreal',
+      mapStack: params.get('map') || 'osm',
       layerState: decodedLayerState,
       layerStateInvalid: params.get('v') === '2'
         && params.has('l')

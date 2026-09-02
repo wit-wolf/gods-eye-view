@@ -1,20 +1,20 @@
 <div align="center">
 
-# 🌐 God's Eye View
+# 🌐 Volo by Volee
 
-### A spy-satellite simulator in your browser — then you realize the sources are public and the data is real.
+### A property globe — Sites, weather, and fires. Google 3D tiles optional.
 
-Photorealistic 3D globe. Live aircraft, ships, satellites, earthquakes, traffic, and public cameras, with clearly labeled modeled views where a live feed is unavailable. Hands-free voice control powered by a realtime AI agent.
+**Volo** is the product; **Volee** is the studio. This fork’s property / tenant-rep globe lives in [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (upstream *God's Eye View*; repo slug unchanged). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: OSM / Bing imagery by default with an opt-in **Google Photorealistic 3D Tiles** toggle, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
 
 *No place left behind.*
 
 ![Orbital HUD, a tracked live globe, FLIR terrain — then OPEN SOURCED](docs/media/hero-open-source-reveal.gif)
 
 <a href="https://www.youtube.com/@bilawalsidhu">
-  <img src="docs/media/youtube-popular-videos.png" alt="The God's Eye View video series on YouTube" width="100%">
+  <img src="docs/media/youtube-popular-videos.png" alt="Upstream God's Eye View video series on YouTube" width="100%">
 </a>
 
-▶️ **From the project behind the viral God's Eye View series** *(formerly WorldView)* — [5M+ on YouTube](https://youtube.com/playlist?list=PL6qSg2I-7_koPbDnSMo0QeeHX_RknA2uv&si=nBGYMoHWQw41v93Q)
+▶️ **Built on the open foundation behind the viral God's Eye View series** *(formerly WorldView)* — [5M+ on YouTube](https://youtube.com/playlist?list=PL6qSg2I-7_koPbDnSMo0QeeHX_RknA2uv&si=nBGYMoHWQw41v93Q)
 
 </div>
 
@@ -30,13 +30,13 @@ Photorealistic 3D globe. Live aircraft, ships, satellites, earthquakes, traffic,
 
 ## 🌍 Why This Exists
 
-**You asked, so it's happening.** God's Eye View is open source. Track the world live. Talk to it. Break it. Extend it.
+**Volo by Volee** turns the open God's Eye View foundation into a property tool. Site pins, fires, traffic, and a photoreal Earth — not an OSINT spy console.
 
-Most open-source intelligence is a pile of browser tabs. The signals are abundant, but the *interface* is the bottleneck. God's Eye View turns those signals into a **place**: the world is already broadcasting — flight transponders, ship beacons, orbital elements, seismographs, public cameras — and this makes it visible on a photorealistic 3D Earth in real time. No classified clearance required; it's public signal all the way down, and the interface runs in your browser, under your control.
+The upstream project fused public signals into a browser globe. This fork keeps that globe and the Sites workflow, and **cuts** aircraft / AIS / satellites / CCTV / voice / radio from the product surface (see `src/productProfile.js`) so they never register, never poll, and never show controls. Flip the profile later if you need those feeds back; the modules and Vite proxies remain.
 
-> Half the magic is that it looks like a forbidden cockpit. The other half is that every line of code is inspectable.
+> Photoreal sites on one globe. Weather and fires when the work needs them. No TOP SECRET theatre.
 
-The live layers are grounded in public feeds: the airliner crossing your screen is reporting telemetry, the camera is installed at a published location, and the ISS position is propagated from current orbital elements. The client deliberately renders flights one polling interval behind real time so it can interpolate smoothly. Some experiences are modeled rather than live: keyless traffic is labeled as a simulation, camera poses are estimated until calibrated, and launch ascent playback is marked `RECONSTRUCTED ESTIMATE`. Each layer keeps its source and freshness state visible, including partial, delayed, simulated, and unavailable states.
+Kept layers report source and freshness honestly — including partial, delayed, simulated, and unavailable states. No fake PropertyCentral, competitors, or zoning data.
 
 ---
 
@@ -46,22 +46,25 @@ The live layers are grounded in public feeds: the airliner crossing your screen 
 
 [![YouTube video about the God's Eye View open source release](https://img.youtube.com/vi/GRJaKcXZS94/maxresdefault.jpg)](https://www.youtube.com/watch?v=GRJaKcXZS94)
 
-▶️ **[The full walkthrough of everything below, on YouTube](https://www.youtube.com/watch?v=GRJaKcXZS94)**
+▶️ **[Upstream walkthrough of the God's Eye View foundation](https://www.youtube.com/watch?v=GRJaKcXZS94)**
 
 </div>
 
-- **🛩️ Cockpit view:** Ride inside a tracked flight — the camera holds the terrain under you all the way down.
-- **📡 Contacts:** A 250 km roster of everything near your target — step through live aircraft and drop into any cockpit.
-- **🎯 Click-to-track anything:** Camera locks on, draws a fading trail, surfaces full metadata — and a tracked fire or vessel hands you off to the nearest live camera in one click.
-- **🖊️ Voice whiteboard:** Speak annotations onto the world — real boundary polygons, marks, and routes.
-- **🛫 3D hangar:** Real per-class aircraft models — 787, ATR-72, Citation, Bell 206, MQ-9 — and a tracked contact swaps from glyph to 3D model as you close in.
-- **🎨 Reskin reality:** GLSL sensor looks over the normal globe — CRT, NVG, FLIR/thermal, Noir, Snow.
-- **🟩 Detection overlay:** Screen-space bounding boxes and IDs on everything in view.
-- **🎖️ Military HUD:** Tactical heads-up display with intelligence-style telemetry.
-- **🌐 Global Context:** Stage the full situational picture with one switch — and get your exact view back when you leave.
-- **🎥 Scene director:** Capture cinematic camera tours for clips and demos.
-- **🔗 Share Links:** Camera, style, layers, and even one tracked target serialize into a URL — a live target is a handoff, not a bookmark.
-- **🏠 Reset Globe:** One control — or one sentence — back to the full Earth.
+- **📍 Sites:** KMZ/KML import, November demo pins, **PIN** drop mode, clickable research brief (locality + Places competitors + Access/traffic + notes — no Genius scores).
+- **📰 Area News:** Data Layers toggle (off by default). Sites-style widget with retail-then-business headlines for the focused SA area via the existing regional briefing path.
+- **🌐 Globe:** OSM imagery on cold start (fast). Turn on **3D tiles** in DISPLAY (or MAP SOURCE → Google 3D tiles) for Photorealistic buildings. Cape Town home opens high above the city bowl.
+- **🔥 Fires & quakes:** NASA FIRMS active fires and USGS earthquakes for environmental context on site work.
+- **🚗 Traffic / roads:** Without `TOMTOM_API_KEY` the Data Layers row is **Traffic (simulated)**. With TomTom it becomes live **Street Traffic**.
+- **✨ Bloom (DISPLAY):** Soft cinematic glow post-process — optional; costs GPU. Off by default.
+- **⚡ Fast (DISPLAY):** Performance preset for SA property work — bloom/sharpen off, 3D tiles off, stronger Sites clustering at overview, gentler DEMO paint, 30 fps cap.
+- **🌤 Weather:** Local weather readouts / cockpit WX where the globe already surfaces them.
+- **🔗 Share Links:** Camera and enabled layers serialize into a URL.
+- **🔍 SA search:** Location search uses browser Places API (New) with the same
+  referrer-restricted Maps key as 3D tiles (`regionCode` / `includedRegionCodes: za`).
+  “George” is Western Cape; shopping centres like Canal Walk / Hemingways resolve
+  in-country.
+
+**Cut from this product (HUD + runtime):** aircraft, military air, ships/AIS, satellites, rocket launches, CCTV, radio, voice/MIC, Detection overlay, and stacked intel looks (CRT / NVG / FLIR / Noir / Snow). Re-enable via `src/productProfile.js`.
 
 ---
 
@@ -69,7 +72,7 @@ The live layers are grounded in public feeds: the airliner crossing your screen 
 
 Requires Node.js 24.14.x or 26.x (enforced by `package.json`).
 
-**This fork** ([wit-wolf/gods-eye-view](https://github.com/wit-wolf/gods-eye-view)) adds a South Africa city pack (`config/city_pack.za.json`) and defaults first-run fly-to to **Cape Town**. Upstream cities remain available in the location bar.
+**This product is Volo by Volee** on fork [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view): South Africa city pack (`config/city_pack.za.json`), first-run fly-to **Cape Town**, and **Property Genius** absorbed as the **Sites** data layer. The MapLibre Property Genius app is not required to view those pins. Upstream God's Eye View cities remain available in the location bar.
 
 1. Copy `.env.example` → `.env` and set `GOOGLE_MAPS_API_KEY`.
 2. Install and run:
@@ -79,7 +82,14 @@ npm install
 npm run dev -- --host localhost --port 4173
 ```
 
-3. Open **`http://localhost:4173`**. Cold start settles in under two seconds on a recent laptop (median 1.86 s in a point-in-time M5/Chrome capture — [docs/PERFORMANCE.md](docs/PERFORMANCE.md); a comparison baseline, not a hardware requirement). A first-run card offers to stage a mission for you — **Live Contacts**, **Space Missions**, **Environmental** — or leaves you to explore manually.
+For snappier SA property use (Sites DEMO, overview zooms):
+
+- Keep **3D tiles** off (DISPLAY / MAP SOURCE) — OSM imagery is the cold-start default.
+- Turn on DISPLAY **Fast** when screening many pins (stronger clustering, gentler paint, bloom/sharpen off, 30 fps).
+- Prefer production preview over Vite HMR when comparing feel: `npm run build && npm run preview`.
+- Leave Traffic / Area News / FIRMS off until needed — disabled layers do not network or animate.
+
+3. Open **`http://localhost:4173`**. Cold start settles in under two seconds on a recent laptop (median 1.86 s in a point-in-time M5/Chrome capture — [docs/PERFORMANCE.md](docs/PERFORMANCE.md); a comparison baseline, not a hardware requirement). A first-run card offers to stage a mission for you — **Sites**, **Environmental**, or explore manually.
 
 > [!TIP]
 > **Not a coder? Have an AI do this whole page for you.** A one-click installer is in the works — until then, install a coding agent ([Claude Code](https://claude.com/claude-code), [Codex](https://openai.com/codex/), [Cursor](https://cursor.com), or [Antigravity](https://antigravity.google)) and paste this:
@@ -144,7 +154,7 @@ No account, no signup. The first-run card will offer to stage a mission for you 
 
 > Voice needs an **OpenAI key**. Without one the entire app still runs — the mic button just reports voice is unavailable. The same key drives the **AI HUD summary**: a terse, five-word intelligence-style readout of the current view that regenerates as you move.
 
-Click **GEV MIC**, grant the microphone, and just talk. This is more than a voice-controlled remote:
+Click **MIC**, grant the microphone, and just talk. This is more than a voice-controlled remote:
 
 - **🧠 It knows what it's looking at.** The agent pulls live scene context before answering — including coordinates, street names, active layers, and view scale. Ask *"what city is this?"* mid-flight and it knows.
 - **🎯 Entity Q&A.** Click any plane, ship, or datacenter and ask *"what's this?"* It answers using the object's live telemetry.
@@ -200,6 +210,27 @@ Thirteen live layers. **Ten of them need nothing at all** — no key, no account
 | 🎖️ **Mapped Installations** | Viewport-bounded military-site context from community mapping — incomplete by nature, and labeled that way | OpenStreetMap | 🟢 |
 
 **Also on the globe:** neighborhood overlays · an optional cockpit WX cloud effect. **Bundled static infrastructure:** Datacenters (4,351), Dams (704), and Submarine Cables (712).
+
+### Sites (Property Genius → Volee)
+
+Property Genius was a local-first SA retail site-screening prototype (MapLibre + OSM). Its workflow now lives inside Volee as the **Sites** layer — not a second app:
+
+| Capability | Status in this fork |
+|---|---|
+| KMZ / KML / GeoJSON import (JSZip + `@tmcw/togeojson`) | **Ported** — Data Layers → **Sites** → **IMPORT**, or drop a file onto the page while Sites is on. Parse runs in a worker; Cesium entities stream in idle batches (cancellable). |
+| Cesium photoreal rendering (points + polygons, terrain-clamped) | **Ported** — replaces the MapLibre flat map / Google Earth workflow |
+| Clickable **research brief** (name, KMZ attributes, nearby imported pins, notes) | **Ported** — no Genius 0–100 scores; metadata notes in `localStorage`; GeoJSON in IndexedDB |
+| **Drop pin (PIN)** — click globe to place a Sites point | **Ported** — persists under “Dropped pins”; opens research brief; **Delete pin** on the card removes one pin (confirm) without RESET |
+| **Access / traffic** on the research brief (live TomTom flow near pin + 5/10/15 min drive-time rings) | **Ported** — reuses `/api/tomtom` flow tiles; drive-time via free-tier `/api/tomtom/reachable-range` (aggressive cache). Keyless = honest unavailable / simulated — no invented %. No demographics inside rings. |
+| **Locality + competitors** on the research brief | **Ported** — TomTom reverse-geocode + Places Search via `/api/tomtom` (same server key / non-tile budget as drive-time). Nominatim / Google Places are labeled fallbacks. Keyless/budget = honest unavailable or fallback. |
+| **Area News** (retail then business headlines for focused camera / site) | **Ported** — Data Layers toggle (off by default); Sites-style widget; `/api/regional-brief?mode=area-news`. Empty/unavailable stay honest. |
+| November Google Earth Pins demo | **Bundled** — enable **Sites**, then click **DEMO**. First paint is a Cape Town preview; the full gzipped set streams afterward. |
+| **Ancora centres** | **Ported** — Data Layers → **Ancora** (amber, distinct from Sites teal). Loads local `public/sites/ancora-centres.geojson` when present (**gitignored** — live PropertyCentral dump stays off GitHub). Committed template: `ancora-centres.example.geojson` (`example: true`). Card shows GLA, units occ/vac, mandate_status, geocoded name/address with “geocoded (not surveyed)” note. Occupancy % = units_occupied/units only — never invent tenants. |
+| Zoning GeoJSON + George bbox | **Ported (optional)** — drop municipal SDF at `public/sites/zoning.geojson` (**gitignored**; see `zoning.example.geojson`). If missing, bbox-query George Integrated Zoning FeatureServer/16 via `/api/george-zoning` (pin envelope only — not all ~54k polygons). No national zoning layer. CORS/network fail → drop a GeoJSON extract. |
+| Demographics / household income / LSM | **Honest join only** — Census 2022 small-area not public; drop 2011 SAL/ward GeoJSON + SuperWEB2 CSV at `public/sites/census-wards.geojson` (**gitignored**) for ward/`SAL_CODE` identifiers. **No invented LSM or income.** |
+| SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** as scrapers — **live TomTom Places** (Google Nearby fallback) covers retail anchors without scrapers |
+| PropertyCentral occupancy | **Deferred** on Sites card — use **Ancora** GeoJSON fields when provided; no invented occupancy |
+| Azure SQL persistence | **Deferred** — this PR stays local-first |
 
 **Missing a layer you want?** Open an issue — or add it and send the PR.
 
@@ -339,7 +370,7 @@ By default nobody else can reach your server — it binds to localhost. To share
 
 ## 📋 Responsible & Open
 
-God's Eye View runs on **public data, clear sources, and local-first execution.** No secrets, no private datasets, no mystery scraping — anything involving a private key is brokered server-side. It has the visual grammar of a classified ops room, built entirely from open signals and inspectable code.
+Volo by Volee runs on **public data, clear sources, and local-first execution** (God's Eye View open-source foundation). No secrets, no private datasets, no mystery scraping — anything involving a private key is brokered server-side. Kept layers report honestly; spy theatre chrome is cut on this product profile.
 
 **The line.** This project models **events, assets, infrastructure, and systems** — aircraft, vessels, satellites, fires, cameras, cities. It does not build features for named-person search, face recognition, or tracking individuals, and pull requests that cross that line won't be merged. People are not a query type here.
 
@@ -350,7 +381,7 @@ God's Eye View runs on **public data, clear sources, and local-first execution.*
 <sub>Media note: Bilawal Sidhu created and owns the 17 capture GIFs on this page. He also published the two README PNGs in the existing public project and authorized their continued inclusion here. Any appearance by Bilawal is included with his permission. These files are project documentation, not MIT-licensed standalone assets. Platform interfaces, trademarks, avatars, data, and third-party imagery visible within them remain subject to their respective owners' terms. See [media provenance](docs/media/README.md) and [source terms](DATA_SOURCES.md).</sub>
 
 > [!IMPORTANT]
-> God's Eye View is an exploratory visualization of public and third-party data.
+> Volee is an exploratory visualization of public and third-party data.
 > Data may be delayed, incomplete, modeled, inferred, or wrong. Do not use it
 > for flight or maritime navigation, emergency response, medical or health
 > decisions, investment decisions, or other safety-critical or operational
@@ -374,6 +405,6 @@ One heads-up from the inside: build in this space for a week and you learn that 
 
 ▶️ [Watch the God's Eye View series](https://youtube.com/playlist?list=PL6qSg2I-7_koPbDnSMo0QeeHX_RknA2uv&si=nBGYMoHWQw41v93Q) · 📬 [Map the World](https://maptheworld.ai/) — the newsletter behind the project
 
-**🌐 God's Eye View. No place left behind.**
+**🌐 Volee. No place left behind.**
 
 </div>

@@ -1299,6 +1299,7 @@ function ensureFlowStatus() {
           console.log('[Data:Traffic] TomTom key present — live flow mode');
           registerDynamicCredit(_viewer, TOMTOM_CREDIT);
         }
+        syncTrafficDisplayName();
       })
       .catch((e) => {
         // Simulating because we could not ask, which is NOT the same as
@@ -1306,9 +1307,15 @@ function ensureFlowStatus() {
         _liveMode = false;
         _flowStatusUnavailable = true;
         console.warn('[Data:Traffic] TomTom status unreachable — simulated traffic:', e?.message || e);
+        syncTrafficDisplayName();
       });
   }
   return _flowStatusPromise;
+}
+
+/** Keep the Data Layers row title honest about sim vs live TomTom. */
+function syncTrafficDisplayName() {
+  trafficLayer.name = _liveMode ? 'Street Traffic' : 'Traffic (simulated)';
 }
 
 /**
@@ -2171,7 +2178,8 @@ function clearDots() {
  */
 const trafficLayer = {
   id: 'traffic',
-  name: 'Street Traffic',
+  // Keyless default is honest; flips to "Street Traffic" once TomTom is confirmed.
+  name: 'Traffic (simulated)',
   icon: '🚗',
   source: 'OpenStreetMap',
   /** @type {number} Zero — layer is self-managed via camera listener + preRender */
@@ -2224,6 +2232,8 @@ const trafficLayer = {
       }
     }
     refreshBucketColors();
+    // Probe TomTom early so the Data Layers title is honest before enable.
+    ensureFlowStatus();
     console.log('[Data:Traffic] Initialized');
   },
 

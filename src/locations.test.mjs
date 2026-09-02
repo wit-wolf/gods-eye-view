@@ -53,16 +53,60 @@ const AUSTIN_RESULT = {
   },
 };
 
+/** Map a geocode-shaped fixture box (viewport or bounds) into Places (New) viewport. */
+function placesViewportFromResult(result) {
+  const box = result?.geometry?.viewport || result?.geometry?.bounds;
+  if (!box?.southwest || !box?.northeast) return undefined;
+  return {
+    low: {
+      latitude: box.southwest.lat,
+      longitude: box.southwest.lng,
+    },
+    high: {
+      latitude: box.northeast.lat,
+      longitude: box.northeast.lng,
+    },
+  };
+}
+
 async function runSearch(viewer, options, { result = AUSTIN_RESULT, query = 'austin' } = {}) {
   const hadWindow = Object.hasOwn(globalThis, 'window');
   const priorWindow = globalThis.window;
   const priorFetch = globalThis.fetch;
   globalThis.window = { __GOOGLE_MAPS_API_KEY__: 'test-key' };
-  globalThis.fetch = async () => ({
-    json: async () => ({ status: 'OK', results: [result] }),
-  });
+  globalThis.fetch = async (url) => {
+    const href = String(url);
+    if (href.includes('places.googleapis.com') && href.includes('searchText')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          places: [{
+            formattedAddress: result.formatted_address,
+            location: {
+              latitude: result.geometry.location.lat,
+              longitude: result.geometry.location.lng,
+            },
+            viewport: placesViewportFromResult(result),
+            types: result.types,
+          }],
+        }),
+      };
+    }
+    if (href.includes('places.googleapis.com') && href.includes('/places/')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (href.includes('/api/google/')) {
+      return { ok: true, status: 200, json: async () => ({ places: [] }) };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'OK', results: [result], error: null }),
+    };
+  };
   try {
-    return await searchAndFlyTo(viewer, query, options);
+    return await searchAndFlyTo(viewer, query, { ...options, countryCode: null });
   } finally {
     globalThis.fetch = priorFetch;
     if (hadWindow) globalThis.window = priorWindow;

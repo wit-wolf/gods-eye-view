@@ -63,7 +63,7 @@ const chipText = (chip) => chip.children.map((child) => child.textContent).join(
 
 // Shaped exactly like MapStackController.getStacks() output.
 const CONTROLLER_STACKS = [
-  { id: 'photoreal', label: 'Google 3D', requiresIon: false, available: true, unavailableReason: null },
+  { id: 'photoreal', label: 'Google 3D tiles', requiresIon: false, available: true, unavailableReason: null },
   { id: 'bing-aerial', label: 'Bing Aerial', requiresIon: true, available: true, unavailableReason: null },
   { id: 'bing-labels', label: 'Bing Labels', requiresIon: true, available: true, unavailableReason: null },
   { id: 'osm', label: 'OSM', requiresIon: false, available: true, unavailableReason: null },
@@ -77,7 +77,7 @@ test('the row renders exactly the four accepted sources', () => {
     'photoreal', 'bing-aerial', 'bing-labels', 'osm',
   ]);
   assert.deepEqual(container.children.map(chipText), [
-    'Google 3D', 'Bing Aerial', 'Bing Labels', 'OSM',
+    'Google 3D tiles', 'Bing Aerial', 'Bing Labels', 'OSM',
   ]);
   assert.deepEqual(PRESENTED_MAP_STACK_IDS, ['photoreal', 'bing-aerial', 'bing-labels', 'osm']);
   assert.ok(container.children.every((chip) => chip.tagName === 'button' && chip.type === 'button'));
@@ -184,15 +184,15 @@ test('a non-ion stack that fails never claims an ion token is required', () => {
   const tilesFailed = CONTROLLER_STACKS.map((stack) => (stack.id === 'photoreal' ? {
     ...stack,
     available: false,
-    unavailableReason: 'Google 3D is unavailable',
+    unavailableReason: 'Google 3D tiles is unavailable',
   } : stack));
   renderMapStackChips(container, tilesFailed, { activeId: 'osm', doc });
 
   const google = container.children[0];
   assert.equal(google.getAttribute('aria-disabled'), 'true');
-  assert.equal(google.getAttribute('aria-label'), 'Google 3D unavailable: Google 3D is unavailable');
-  assert.equal(chipText(google), 'Google 3D', 'no ION badge on a stack that does not need ion');
-  assert.equal(google.title, 'Google 3D is unavailable');
+  assert.equal(google.getAttribute('aria-label'), 'Google 3D tiles unavailable: Google 3D tiles is unavailable');
+  assert.equal(chipText(google), 'Google 3D tiles', 'no ION badge on a stack that does not need ion');
+  assert.equal(google.title, 'Google 3D tiles is unavailable');
   assert.equal(chipText(container.children[1]), 'Bing Aerial', 'available ion stacks stay unbadged');
 });
 
@@ -237,7 +237,7 @@ test('the controller is the single source of the unavailability reason', () => {
   assert.doesNotMatch(
     controller,
     /bing-road/,
-    'Bing Road is retired: an old map=bing-road link must take the unknown-id photoreal fallback',
+    'Bing Road is retired: an old map=bing-road link must take the unknown-id default-stack fallback',
   );
 
   assert.match(

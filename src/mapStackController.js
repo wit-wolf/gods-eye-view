@@ -4,7 +4,7 @@ import { governorRequestRender } from './renderGovernor.js';
 export const MAP_STACKS = [
   {
     id: 'photoreal',
-    label: 'Google 3D',
+    label: 'Google 3D tiles',
     shortLabel: '3D',
     kind: 'photoreal',
     requiresIon: false,
@@ -34,6 +34,9 @@ export const MAP_STACKS = [
   },
 ];
 
+/** Cold-start / standard-view map source — imagery globe, not Google 3D tiles. */
+export const DEFAULT_MAP_STACK_ID = 'osm';
+
 const DEFAULT_OSM_CREDIT = '© OpenStreetMap contributors';
 
 // Keyless global ellipsoidal terrain (Re:Earth Terrain / Mapterhorn, CC BY 4.0,
@@ -45,15 +48,14 @@ const DEFAULT_OSM_CREDIT = '© OpenStreetMap contributors';
 const REEARTH_TERRAIN_URL = 'https://terrain.reearth.land/cesium-mesh/ellipsoid';
 
 /**
- * Controls the active globe/map stack. Google Photorealistic 3D Tiles remain
- * the cinematic default, while Cesium ion world imagery and OSM run as globe
- * imagery stacks.
+ * Controls the active globe/map stack. Google Photorealistic 3D Tiles are an
+ * opt-in DISPLAY toggle (performance); OSM / Bing imagery are the default.
  */
 export class MapStackController {
   constructor(viewer, {
     googleTileset = null,
     cesiumToken = '',
-    initialStack = 'photoreal',
+    initialStack = DEFAULT_MAP_STACK_ID,
     onChange = null,
     onError = null,
   } = {}) {
@@ -89,7 +91,9 @@ export class MapStackController {
     this._switchGen = 0;
 
     if (!this.getStack(this._activeId) || !this.isStackAvailable(this._activeId)) {
-      this._activeId = googleTileset ? 'photoreal' : 'osm';
+      this._activeId = this.isStackAvailable(DEFAULT_MAP_STACK_ID)
+        ? DEFAULT_MAP_STACK_ID
+        : (googleTileset ? 'photoreal' : 'osm');
     }
   }
 
@@ -155,7 +159,9 @@ export class MapStackController {
   }
 
   async setStack(id, { silent = false } = {}) {
-    const stack = this.getStack(id) || this.getStack('photoreal');
+    const stack = this.getStack(id)
+      || this.getStack(DEFAULT_MAP_STACK_ID)
+      || this.getStack('photoreal');
     if (!stack) return null;
 
     if (!this.isStackAvailable(stack.id)) {

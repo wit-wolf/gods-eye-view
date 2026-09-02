@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>God's Eye View</title>
+  <title>Volo by Volee</title>
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   <link rel="stylesheet" href="/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -25,8 +25,8 @@
   <!-- Title -->
   <div id="title-bar">
     <div class="title-glow"></div>
-    <h1><span class="title-logo brand-logo" data-logo-gaze data-logo-src="/logo.svg" aria-hidden="true"><img src="/logo.svg" alt="" /></span> <span>GOD'S EYE <span class="title-accent">VIEW</span></span></h1>
-    <p class="subtitle">NO PLACE LEFT BEHIND</p>
+    <h1><span class="title-logo brand-logo" data-logo-gaze data-logo-src="/logo.svg" aria-hidden="true"><img src="/logo.svg" alt="" /></span> <span>VOLO</span></h1>
+    <p class="subtitle">by Volee</p>
   </div>
 
   <!-- Style indicator -->
@@ -361,7 +361,7 @@
       <button class="panel-collapse-btn pp-collapse-btn" data-collapse-target="pp-toggles" title="Collapse panel">&#x25C0;</button>
     </div>
     <div class="pp-toggle-group">
-      <button class="pp-toggle-btn" id="hud-toggle" title="Intelligence HUD (H)">
+      <button class="pp-toggle-btn" id="hud-toggle" title="Display HUD (H)">
         <span class="pp-icon">&#x25CE;</span>
         <span class="pp-label">HUD</span>
       </button>
@@ -428,12 +428,20 @@
         </div>
       </div>
     </div>
-    <div class="pp-toggle-group">
-      <button class="pp-toggle-btn active" id="scope-toggle" title="Scope — the circular viewport mask" aria-pressed="true">
+      <div class="pp-toggle-group">
+      <button class="pp-toggle-btn" id="google-3d-toggle" title="Google Photorealistic 3D Tiles — 3D buildings (off by default for performance)" aria-pressed="false">
+        <span class="pp-icon material-symbols-outlined" aria-hidden="true">apartment</span>
+        <span class="pp-label">3D tiles</span>
+      </button>
+      <button class="pp-toggle-btn" id="perf-fast-toggle" title="Fast — performance preset: bloom/sharpen off, 3D tiles off, stronger Sites clustering, gentler pin paint, 30 fps cap" aria-pressed="false">
+        <span class="pp-icon material-symbols-outlined" aria-hidden="true">speed</span>
+        <span class="pp-label">Fast</span>
+      </button>
+      <button class="pp-toggle-btn" id="scope-toggle" title="Scope — the circular viewport mask" aria-pressed="false">
         <span class="pp-icon material-symbols-outlined" aria-hidden="true">adjust</span>
         <span class="pp-label">Scope</span>
       </button>
-      <div class="pp-slider-row visible" id="scope-slider-row">
+      <div class="pp-slider-row" id="scope-slider-row">
         <span class="pp-slider-mini-label">Feather</span>
         <!-- Feather starts at an 11% soft scope-mask edge (final value
              2026-08-24, superseding the 08-22 hard-crop and 08-23 8% rulings);
@@ -455,7 +463,7 @@
       <span class="pp-label">Clean UI</span>
     </button>
     <div class="pp-toggle-group">
-      <button class="pp-toggle-btn" id="bloom-toggle" title="Bloom / Glow">
+      <button class="pp-toggle-btn" id="bloom-toggle" title="Bloom — soft cinematic glow post-process (GPU cost)">
         <span class="pp-icon">&#x2728;</span>
         <span class="pp-label">Bloom</span>
       </button>
@@ -531,7 +539,7 @@
       <section class="map-source-section" aria-labelledby="map-source-label">
         <div class="map-source-heading">
           <span id="map-source-label">MAP SOURCE</span>
-          <span id="map-stack-status" class="pp-stack-status" aria-live="polite">3D</span>
+          <span id="map-stack-status" class="pp-stack-status" aria-live="polite">OSM</span>
         </div>
         <div id="map-stack-chips" class="map-stack-chip-row" role="group" aria-label="Map source"></div>
       </section>
@@ -565,7 +573,8 @@
             <button id="search-toggle" class="search-toggle-btn" title="Search any location">
               <span>&#x1F50E;</span>
             </button>
-            <input type="text" id="location-search" placeholder="Search any location..." autocomplete="off" spellcheck="false" />
+            <input type="text" id="location-search" placeholder="Search South Africa…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="location-search-suggestions" aria-expanded="false" />
+            <ul id="location-search-suggestions" class="location-search-suggestions" role="listbox" hidden></ul>
           </div>
         </div>
       </div>
@@ -836,23 +845,14 @@
   <aside id="first-run-launcher" role="dialog" aria-labelledby="first-run-title" aria-describedby="first-run-description" hidden>
     <div class="first-run-scanline" aria-hidden="true"></div>
     <header class="first-run-header">
-      <span class="first-run-kicker">MISSION CONTROL · FIRST LAUNCH</span>
+      <span class="first-run-kicker">VOLO · BY VOLEE</span>
     </header>
     <h2 id="first-run-title">Choose your first view</h2>
-    <!-- The card's one persuasive line, final and VERBATIM (2026-08-23)
-         — including the unspaced em dash. The arc it has to carry: this looks
-         like something you should not have access to → the sources are all
-         public → the data is real. Tile subcopy stays purely functional. -->
-    <p id="first-run-description">It feels like a forbidden cockpit—then you realize the sources are public and the data is real.</p>
+    <p id="first-run-description">Photoreal sites, weather, and fires on one globe—for property work, not a spy console.</p>
     <div class="first-run-choices">
-      <button type="button" data-first-run-choice="contacts">
-        <span class="material-symbols-outlined" aria-hidden="true">radar</span>
-        <span><strong>LIVE CONTACTS</strong><small>Aircraft, vessels and nearby intelligence</small></span>
-        <span class="material-symbols-outlined first-run-arrow" aria-hidden="true">arrow_forward</span>
-      </button>
-      <button type="button" data-first-run-choice="space-missions">
-        <span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span>
-        <span><strong>SPACE MISSIONS</strong><small>Launches, spacecraft and orbital context</small></span>
+      <button type="button" data-first-run-choice="sites">
+        <span class="material-symbols-outlined" aria-hidden="true">location_on</span>
+        <span><strong>SITES</strong><small>Import KMZ pins or load the November demo</small></span>
         <span class="material-symbols-outlined first-run-arrow" aria-hidden="true">arrow_forward</span>
       </button>
       <button type="button" data-first-run-choice="environmental">
@@ -879,7 +879,7 @@
     </div>
     <!-- Kept out of the footer row: it swaps to mission progress and errors, and
          a live region that also holds layout makes the row jump as it speaks. -->
-    <p class="first-run-note" data-first-run-status role="status" aria-live="polite">Tip: the GEV MIC button in the dock lets you talk to the map.</p>
+    <p class="first-run-note" data-first-run-status role="status" aria-live="polite">Tip: open Data Layers for Sites, traffic, and FIRMS fires.</p>
   </aside>
 
   <!-- Intelligence HUD Overlay -->
@@ -889,7 +889,7 @@
   <div id="loading-screen">
     <div class="loader-content">
       <span class="loader-logo brand-logo" data-logo-gaze data-logo-src="/logo.svg" aria-hidden="true"><img src="/logo.svg" alt="" /></span>
-      <h2>GOD'S EYE <span class="title-accent">VIEW</span></h2>
+      <h2>VOLO</h2>
       <p class="loader-status">Initializing photorealistic world...</p>
     </div>
   </div>

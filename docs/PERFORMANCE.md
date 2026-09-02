@@ -142,3 +142,13 @@ Use the same controls before attributing a difference to the application:
 
 Use this page as a regression baseline for one known hardware and browser
 configuration, not as a compatibility guarantee.
+
+## Sites / SA property tips (2026-09)
+
+- Keep **Google 3D tiles** off unless inspecting buildings; cold start is OSM.
+- Sites **cluster LOD** increases `pixelRange` / `minimumClusterSize` as the
+  camera rises so country/province views show bubbles, not ~10k pins.
+- DISPLAY **Fast** strengthens that LOD, caps paint batches, disables
+  bloom/sharpen, and sets a 30 fps target.
+- `npm run build && npm run preview` is usually snappier than `npm run dev`.
+- Disabled Traffic / Area News / FIRMS layers do not fetch or hold continuous render.

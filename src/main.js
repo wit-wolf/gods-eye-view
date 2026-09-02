@@ -16,6 +16,9 @@ import aisLiveVesselsLayer from './data/aisLiveVessels.js';
 import militaryInstallationsLayer from './data/militaryInstallations.js';
 import militaryAwarenessLayer from './data/militaryAwareness.js';
 import localDataLayers from './data/localLayers.js';
+import sitesLayer from './sites/sitesLayer.js';
+import ancoraLayer from './sites/ancoraLayer.js';
+import areaNewsLayer from './data/areaNews.js';
 import { LAYER_STATE_REGISTRY } from './data/layerState.js';
 import { registerDataCredits } from './data/dataCredits.js';
 import { SceneDirector } from './scenes/director.js';
@@ -33,8 +36,37 @@ import {
 } from './renderGovernor.js';
 import { installScopeMask } from './scopeMask.js';
 import { initFirstRunExperience } from './firstRunExperience.js';
+import {
+  applyProductChrome,
+  filterLayerStateRegistryForProduct,
+  isProductFeatureEnabled,
+  isProductLayerEnabled,
+} from './productProfile.js';
 
 initLogoGaze();
+applyProductChrome();
+
+/** Full module catalog — product profile decides which ids register at boot. */
+const LAYER_MODULES_BY_ID = Object.freeze({
+  flights: flightsLayer,
+  military: militaryFlightsLayer,
+  earthquakes: earthquakesLayer,
+  satellites: satellitesLayer,
+  'rocket-launches': rocketLaunchesLayer,
+  traffic: trafficLayer,
+  cctv: cctvLayer,
+  radio: radioLayer,
+  bikeshare: bikeshareLayer,
+  'ais-live-vessels': aisLiveVesselsLayer,
+  'military-installations': militaryInstallationsLayer,
+  'military-awareness': militaryAwarenessLayer,
+  sites: sitesLayer,
+  ancora: ancoraLayer,
+  'area-news': areaNewsLayer,
+  ...Object.fromEntries(localDataLayers.map((layer) => [layer.id, layer])),
+});
+
+const PRODUCT_LAYER_STATE_REGISTRY = filterLayerStateRegistryForProduct(LAYER_STATE_REGISTRY);
 
 /**
  * Extract a human-readable error message from any thrown value.
@@ -63,7 +95,7 @@ function describeError(error) {
 }
 
 /**
- * GOD'S EYE VIEW — Main Entry Point
+ * VOLEE — Main Entry Point (fork of God's Eye View)
  * Initializes CesiumJS with Google Photorealistic 3D Tiles,
  * style system, intelligence HUD, location presets, and share links.
  */
@@ -117,7 +149,7 @@ async function init() {
         document.body.appendChild(el);
         return el;
       })(),
-      msaaSamples: 4,
+      msaaSamples: 2,
       contextOptions: {
         webgl: {
           preserveDrawingBuffer: true,
@@ -154,22 +186,22 @@ async function init() {
     viewer.scene.skyAtmosphere.saturationShift = -0.12;
     viewer.scene.skyAtmosphere.brightnessShift = -0.08;
 
-    loaderStatus.textContent = 'Loading Google 3D Tiles...';
+    loaderStatus.textContent = 'Preparing map...';
     let tileset = null;
     try {
-      // Load Google Photorealistic 3D Tiles
+      // Load Google Photorealistic 3D Tiles for the opt-in DISPLAY toggle.
+      // Cold start uses OSM / imagery by default (performance); tiles stay
+      // available so the operator can turn 3D buildings on when wanted.
       tileset = await Cesium.createGooglePhotorealistic3DTileset({
         onlyUsingWithGoogleGeocoder: true,
       });
+      tileset.show = false;
       viewer.scene.primitives.add(tileset);
-      // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
-      // Google Photorealistic 3D Tiles provide their own terrain/elevation.
-      viewer.scene.globe.show = false;
+      viewer.scene.globe.show = true;
     } catch (tileError) {
       console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
       const tileErrorDetail = describeError(tileError);
       loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
-      // Keep Cesium globe visible as fallback instead of aborting the app.
       viewer.scene.globe.show = true;
     }
 
@@ -178,7 +210,7 @@ async function init() {
     const mapStackController = new MapStackController(viewer, {
       googleTileset: tileset,
       cesiumToken,
-      initialStack: tileset ? 'photoreal' : 'osm',
+      initialStack: 'osm',
       // Task 5 (height-datum fix): rebroadcast stack changes as a window
       // CustomEvent so data layers (CCTV per-regime ground resolution) can
       // react without coupling MapStackController to layer modules. Fires on
@@ -189,7 +221,7 @@ async function init() {
       },
       onError: (message) => console.warn('[MapStack]', message),
     });
-    await mapStackController.setStack(tileset ? 'photoreal' : 'osm', { silent: true });
+    await mapStackController.setStack('osm', { silent: true });
 
     // Initialize the style manager (post-processing, HUD, locations, share links)
     const styleManager = new StyleManager(viewer, { mapStackController });
@@ -208,29 +240,26 @@ async function init() {
       loaderStatus.textContent = 'Restoring shared view...';
     }
 
-    // Initialize data layer manager
+    // Initialize data layer manager — only product-enabled layers register, so
+    // cut OSINT feeds never start timers or hit network/paid keys.
     const dataManager = new DataLayerManager(viewer, {
       allowQaRegistration: import.meta.env.DEV,
     });
-    dataManager.register(flightsLayer);
-    dataManager.register(militaryFlightsLayer);
-    dataManager.register(earthquakesLayer);
-    dataManager.register(satellitesLayer);
-    dataManager.register(rocketLaunchesLayer);
-    rocketLaunchesLayer.attachDataManager(dataManager);
-    dataManager.register(trafficLayer);
-    dataManager.register(cctvLayer);
-    dataManager.register(radioLayer);
-    dataManager.register(bikeshareLayer);
-    dataManager.register(aisLiveVesselsLayer);
-    dataManager.register(militaryInstallationsLayer);
-    dataManager.register(militaryAwarenessLayer);
-    militaryAwarenessLayer.attachDataManager(dataManager);
-    for (const layer of localDataLayers) {
+    for (const entry of PRODUCT_LAYER_STATE_REGISTRY) {
+      const layer = LAYER_MODULES_BY_ID[entry.id];
+      if (!layer) {
+        throw new Error(`Product layer module missing for registry id: ${entry.id}`);
+      }
       dataManager.register(layer);
     }
-    // Restoration starts only after the complete production registry is sealed.
-    dataManager.finalizeRegistrations(LAYER_STATE_REGISTRY);
+    if (isProductLayerEnabled('rocket-launches')) {
+      rocketLaunchesLayer.attachDataManager(dataManager);
+    }
+    if (isProductLayerEnabled('military-awareness')) {
+      militaryAwarenessLayer.attachDataManager(dataManager);
+    }
+    // Restoration starts only after the product registry is sealed.
+    dataManager.finalizeRegistrations(PRODUCT_LAYER_STATE_REGISTRY);
     if (import.meta.env.DEV) {
       window.__gevQaRegisterLayer = (targetManager, layerModule) => {
         if (targetManager !== dataManager) throw new Error('QA layer manager mismatch');
@@ -326,10 +355,16 @@ async function init() {
       getRenderGovernorDiagnostics,
       requestRender: governorRequestRender,
     };
-    window.__godsEyeView.voiceCommands = initGevVoiceCommands({ viewer, styleManager, dataManager, sceneDirector, annotations });
+    if (isProductFeatureEnabled('voice')) {
+      window.__godsEyeView.voiceCommands = initGevVoiceCommands({
+        viewer, styleManager, dataManager, sceneDirector, annotations,
+      });
+    } else {
+      window.__godsEyeView.voiceCommands = null;
+    }
 
   } catch (error) {
-    console.error("God's Eye View initialization failed:", error);
+    console.error('Volee initialization failed:', error);
     loaderStatus.textContent = `Error: ${describeError(error)}`;
     loaderStatus.style.color = '#ff4444';
   }

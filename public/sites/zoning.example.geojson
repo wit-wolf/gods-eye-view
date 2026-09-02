@@ -1,0 +1,27 @@
+{
+  "type": "FeatureCollection",
+  "name": "Municipal zoning / SDF example",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_code": "EX-BUS",
+        "zone_name": "EXAMPLE Business zone (Hemingways area)",
+        "example": true,
+        "source_note": "Copy polygons into public/sites/zoning.geojson (gitignored). If absent, Volo may bbox-query George Municipality Integrated Zoning. Do not invent codes."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [27.9000, -33.0150],
+            [27.9080, -33.0150],
+            [27.9080, -33.0080],
+            [27.9000, -33.0080],
+            [27.9000, -33.0150]
+          ]
+        ]
+      }
+    }
+  ]
+}

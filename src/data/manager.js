@@ -19,6 +19,23 @@ const FEED_STATE_LABELS = Object.freeze({
   unavailable: 'UNAVAILABLE',
 });
 
+/** Honest Data Layers title for traffic (sim vs live TomTom). */
+export function layerDisplayName(layer) {
+  if (layer?.id === 'traffic') {
+    if (layer.stats?.mode === 'live') return 'Street Traffic';
+    return 'Traffic (simulated)';
+  }
+  return layer?.name || layer?.id || 'Layer';
+}
+
+function escapeDataLayerHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 const SUPERSEDED_VISIBILITY_INTENT = Symbol('superseded-visibility-intent');
 const VALID_LAYER_SERIALIZATION_DISPOSITIONS = new Set([
   'enabled-only',
@@ -2033,7 +2050,7 @@ export class DataLayerManager {
 
       const left = document.createElement('div');
       left.className = 'data-toggle-left';
-      left.innerHTML = `<span class="data-icon">${layer.icon}</span><span class="data-name">${layer.name}</span>`;
+      left.innerHTML = `<span class="data-icon">${layer.icon}</span><span class="data-name">${escapeDataLayerHtml(layerDisplayName(layer))}</span>`;
 
       const right = document.createElement('div');
       right.className = 'data-toggle-right';
@@ -2196,6 +2213,11 @@ export class DataLayerManager {
       const count = row.querySelector('.data-count');
       if (count) {
         count.textContent = layer.stats.count ? this._formatCount(layer.stats.count) : '—';
+      }
+
+      const nameEl = row.querySelector('.data-name');
+      if (nameEl) {
+        nameEl.textContent = layerDisplayName(layer);
       }
 
       const meta = row.querySelector('.data-toggle-meta');

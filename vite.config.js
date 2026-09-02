@@ -18,6 +18,7 @@
  *  13. Weather effects — camera-local Open-Meteo observations without news/geocoding overhead
  *  14. Rocket launches — recent Launch Library 2 mission metadata
  *  15. Radio Browser — public-domain station directory and click counting
+ *  16. George zoning — bbox query against Integrated Zoning FeatureServer/16
  *
  * Also exposes Cesium and Google 3D Tiles API keys to the
  * client via `import.meta.env.*` defines.
@@ -46,9 +47,14 @@ import { defineConfig, loadEnv } from 'vite';
 import cesium from 'vite-plugin-cesium';
 import { normalizeRadioCountryInput } from './src/data/radioCountry.js';
 import {
+  AREA_NEWS_MAX_ARTICLES,
+  buildAreaNewsSearchQueries,
+  classifyAreaNewsTopic,
+  newsLocaleForPlace,
   normalizeRegionalArticles,
   normalizeRegionalPlace,
   normalizeRegionalWeather,
+  rankAndLimitAreaNews,
 } from './src/data/regionalBrief.js';
 import { normalizeAdsbLolPointResponse } from './src/data/adsbLolFallback.js';
 import { createAisStreamAdapter, isRecognizedAisEnvelope } from './src/data/aisStreamAdapter.js';
@@ -1739,32 +1745,66 @@ function rocketLaunchesProxy() {
  * tier's ~50k/day). Over the cap the proxy serves stale tiles when available,
  * else 429 {error:'budget'}.
  *
- * GET /api/tomtom/status → {hasKey, dailyCount, budget, date}. Keyless mode:
- * status reports hasKey:false and the tile endpoint 503s {error:'no_key'}
- * without touching upstream — the traffic layer then stays in simulation mode.
+ * GET /api/tomtom/status → {hasKey, dailyCount, budget, routeDailyCount,
+ * routeBudget, date}. Keyless mode: status reports hasKey:false and the tile
+ * / routing / search endpoints 503 {error:'no_key'} without touching upstream —
+ * the traffic layer then stays in simulation mode; Sites research degrades.
+ *
+ * GET /api/tomtom/reachable-range?lat=&lon=&minutes= → Routing
+ * calculateReachableRange (car, time budget). Aggressive 6 h memory+disk cache;
+ * separate soft cap TOMTOM_DAILY_ROUTE_BUDGET (default 800 of Evaluation
+ * non-tile allowance).
+ *
+ * GET /api/tomtom/reverse-geocode?lat=&lon= → Search reverseGeocode (Sites
+ * pin locality). Same non-tile budget + 6 h cache.
+ *
+ * GET /api/tomtom/nearby-poi?lat=&lon=&radius= → Search nearbySearch retail
+ * category set (Sites competitor ring). Same non-tile budget + 6 h cache.
+ * Flow tiles stay on the classic relative path — do not change that upstream.
  *
  * @returns {import('vite').Plugin}
  */
 function tomtomProxy() {
   const TILE_TTL_MS = 120_000;
+  const ROUTE_TTL_MS = 6 * 60 * 60 * 1000;
   const CACHE_DIR = path.join(process.cwd(), '.gev-cache', 'tomtom');
   const BUDGET_PATH = path.join(CACHE_DIR, 'budget.json');
+  const ROUTE_BUDGET_PATH = path.join(CACHE_DIR, 'route-budget.json');
   const DEFAULT_DAILY_BUDGET = 40000;
+  const DEFAULT_DAILY_ROUTE_BUDGET = 800;
   const MEM_MAX_ENTRIES = 256;
+  const ROUTE_MEM_MAX_ENTRIES = 96;
   const UPSTREAM_TIMEOUT_MS = 15000;
+  const ROUTE_UPSTREAM_TIMEOUT_MS = 20000;
+  const ALLOWED_ROUTE_MINUTES = new Set([5, 10, 15]);
+  /** Shopping Centre, Market, Shop, Department Store — retail anchors only. */
+  const NEARBY_RETAIL_CATEGORY_SET = '7373,7332,9361,7327';
+  const NEARBY_LIMIT = 20;
 
   /** @type {Map<string, {at:number, buf:Buffer}>} tile key `z/x/y` -> cached tile (kept past TTL for serve-stale). */
   const mem = new Map();
   /** @type {Map<string, Promise<{at:number, buf:Buffer}|null>>} single-flight per tile. */
   const inflight = new Map();
+  /** @type {Map<string, {at:number, body:object}>} reachable-range cache. */
+  const routeMem = new Map();
+  /** @type {Map<string, Promise<{at:number, body:object}|null>>} */
+  const routeInflight = new Map();
 
   /** @type {{date:string, count:number}|null} lazily-loaded persistent counter. */
   let budget = null;
   let budgetLoaded = false;
+  /** @type {{date:string, count:number}|null} non-tile / routing counter. */
+  let routeBudget = null;
+  let routeBudgetLoaded = false;
 
   function dailyBudgetLimit() {
     const raw = Number.parseInt(process.env.TOMTOM_DAILY_TILE_BUDGET || '', 10);
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_BUDGET;
+  }
+
+  function dailyRouteBudgetLimit() {
+    const raw = Number.parseInt(process.env.TOMTOM_DAILY_ROUTE_BUDGET || '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_ROUTE_BUDGET;
   }
 
   async function loadBudgetOnce() {
@@ -1778,6 +1818,17 @@ function tomtomProxy() {
     } catch { /* no budget file yet */ }
   }
 
+  async function loadRouteBudgetOnce() {
+    if (routeBudgetLoaded) return;
+    routeBudgetLoaded = true;
+    try {
+      const parsed = JSON.parse(await fsp.readFile(ROUTE_BUDGET_PATH, 'utf8'));
+      if (parsed && typeof parsed.date === 'string' && Number.isFinite(parsed.count)) {
+        routeBudget = parsed;
+      }
+    } catch { /* no route budget file yet */ }
+  }
+
   async function persistBudget() {
     try {
       await fsp.mkdir(CACHE_DIR, { recursive: true });
@@ -1787,10 +1838,24 @@ function tomtomProxy() {
     }
   }
 
+  async function persistRouteBudget() {
+    try {
+      await fsp.mkdir(CACHE_DIR, { recursive: true });
+      await fsp.writeFile(ROUTE_BUDGET_PATH, JSON.stringify(routeBudget), 'utf8');
+    } catch (err) {
+      console.warn('[tomtom-proxy] route budget write failed:', err?.message || err);
+    }
+  }
+
   /** Roll the counter to today (UTC) and return it. */
   function currentBudget() {
     budget = normalizeTomTomBudget(budget, tomtomUtcDayKey());
     return budget;
+  }
+
+  function currentRouteBudget() {
+    routeBudget = normalizeTomTomBudget(routeBudget, tomtomUtcDayKey());
+    return routeBudget;
   }
 
   /** Count one upstream fetch attempt against today's budget (async persist). */
@@ -1799,7 +1864,16 @@ function tomtomProxy() {
     void persistBudget();
   }
 
+  function recordRouteUpstreamFetch() {
+    currentRouteBudget().count += 1;
+    void persistRouteBudget();
+  }
+
   const tilePath = (key) => path.join(CACHE_DIR, `flow-${key.replaceAll('/', '-')}.pbf`);
+  const routePath = (key) => path.join(
+    CACHE_DIR,
+    `reach-${key.replaceAll(/[^0-9A-Za-z._-]+/g, '_')}.json`
+  );
 
   /** Disk-cache read; tile age comes from the file's mtime. */
   async function readDiskTile(key) {
@@ -1821,6 +1895,25 @@ function tomtomProxy() {
     }
   }
 
+  async function readDiskRoute(key) {
+    try {
+      const [stat, text] = await Promise.all([
+        fsp.stat(routePath(key)),
+        fsp.readFile(routePath(key), 'utf8'),
+      ]);
+      return { at: stat.mtimeMs, body: JSON.parse(text) };
+    } catch { return null; }
+  }
+
+  async function writeDiskRoute(key, body) {
+    try {
+      await fsp.mkdir(CACHE_DIR, { recursive: true });
+      await fsp.writeFile(routePath(key), JSON.stringify(body), 'utf8');
+    } catch (err) {
+      console.warn(`[tomtom-proxy] route cache write failed for ${key}:`, err?.message || err);
+    }
+  }
+
   /** LRU-ish memory insert (Map preserves insertion order; evict the oldest). */
   function memSet(key, entry) {
     if (!mem.has(key) && mem.size >= MEM_MAX_ENTRIES) {
@@ -1828,6 +1921,14 @@ function tomtomProxy() {
       mem.delete(oldest);
     }
     mem.set(key, entry);
+  }
+
+  function routeMemSet(key, entry) {
+    if (!routeMem.has(key) && routeMem.size >= ROUTE_MEM_MAX_ENTRIES) {
+      const oldest = routeMem.keys().next().value;
+      routeMem.delete(oldest);
+    }
+    routeMem.set(key, entry);
   }
 
   async function fetchUpstream(z, x, y) {
@@ -1839,6 +1940,202 @@ function tomtomProxy() {
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length === 0) throw new Error('empty tile body');
     return buf;
+  }
+
+  /**
+   * calculateReachableRange — returns a sanitized boundary payload.
+   * @param {number} lat @param {number} lon @param {number} minutes
+   */
+  async function fetchReachableRangeUpstream(lat, lon, minutes) {
+    const origin = `${lat},${lon}`;
+    const qs = new URLSearchParams({
+      timeBudgetInSec: String(Math.round(minutes * 60)),
+      travelMode: 'car',
+      traffic: 'true',
+      key: process.env.TOMTOM_API_KEY,
+    });
+    const url = `https://api.tomtom.com/routing/1/calculateReachableRange/${encodeURIComponent(origin)}/json?${qs}`;
+    recordRouteUpstreamFetch();
+    const res = await fetch(url, { signal: AbortSignal.timeout(ROUTE_UPSTREAM_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const boundary = Array.isArray(data?.reachableRange?.boundary)
+      ? data.reachableRange.boundary
+        .filter((pt) => Number.isFinite(pt?.latitude) && Number.isFinite(pt?.longitude))
+        .map((pt) => ({ latitude: pt.latitude, longitude: pt.longitude }))
+      : [];
+    // Cap vertices so disk/memory stay bounded (isochrones can be dense).
+    const capped = boundary.length > 256
+      ? boundary.filter((_, i) => i % Math.ceil(boundary.length / 256) === 0)
+      : boundary;
+    return {
+      minutes,
+      origin: { lat, lon },
+      boundary: capped,
+      center: data?.reachableRange?.center
+        && Number.isFinite(data.reachableRange.center.latitude)
+        && Number.isFinite(data.reachableRange.center.longitude)
+        ? {
+          latitude: data.reachableRange.center.latitude,
+          longitude: data.reachableRange.center.longitude,
+        }
+        : null,
+    };
+  }
+
+  /**
+   * Search reverseGeocode — sanitized locality fields for Sites pins.
+   * @param {number} lat @param {number} lon
+   */
+  async function fetchReverseGeocodeUpstream(lat, lon) {
+    const qs = new URLSearchParams({
+      key: process.env.TOMTOM_API_KEY,
+      radius: '100',
+    });
+    const origin = `${lat},${lon}`;
+    const url = `https://api.tomtom.com/search/2/reverseGeocode/${encodeURIComponent(origin)}.json?${qs}`;
+    recordRouteUpstreamFetch();
+    const res = await fetch(url, { signal: AbortSignal.timeout(ROUTE_UPSTREAM_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const addr = Array.isArray(data?.addresses) ? data.addresses[0]?.address : null;
+    if (!addr || typeof addr !== 'object') {
+      return {
+        origin: { lat, lon },
+        label: null,
+        locality: null,
+        region: null,
+        country: null,
+        countryCode: null,
+      };
+    }
+    const locality = [
+      addr.municipalitySubdivision,
+      addr.municipality,
+      addr.localName,
+    ].find((v) => typeof v === 'string' && v.trim()) || null;
+    const region = [
+      addr.countrySubdivisionName,
+      addr.countrySubdivision,
+    ].find((v) => typeof v === 'string' && v.trim()) || null;
+    const country = typeof addr.country === 'string' && addr.country.trim()
+      ? addr.country.trim()
+      : null;
+    const countryCode = typeof addr.countryCode === 'string' && addr.countryCode.trim()
+      ? addr.countryCode.trim().toUpperCase()
+      : null;
+    const label = (typeof addr.freeformAddress === 'string' && addr.freeformAddress.trim())
+      || [locality, region, country].filter(Boolean).join(', ')
+      || null;
+    return {
+      origin: { lat, lon },
+      label: label ? String(label).slice(0, 240) : null,
+      locality: locality ? String(locality).slice(0, 120) : null,
+      region: region ? String(region).slice(0, 120) : null,
+      country: country ? String(country).slice(0, 120) : null,
+      countryCode,
+    };
+  }
+
+  /**
+   * Search nearbySearch — sanitized retail POI ring for Sites competitors.
+   * @param {number} lat @param {number} lon @param {number} radiusM
+   */
+  async function fetchNearbyPoiUpstream(lat, lon, radiusM) {
+    const qs = new URLSearchParams({
+      key: process.env.TOMTOM_API_KEY,
+      lat: String(lat),
+      lon: String(lon),
+      radius: String(radiusM),
+      limit: String(NEARBY_LIMIT),
+      categorySet: NEARBY_RETAIL_CATEGORY_SET,
+    });
+    const url = `https://api.tomtom.com/search/2/nearbySearch/.json?${qs}`;
+    recordRouteUpstreamFetch();
+    const res = await fetch(url, { signal: AbortSignal.timeout(ROUTE_UPSTREAM_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const places = [];
+    const seen = new Set();
+    for (const row of Array.isArray(data?.results) ? data.results : []) {
+      const name = row?.poi?.name || row?.address?.freeformAddress;
+      const plat = row?.position?.lat;
+      const plon = row?.position?.lon;
+      if (!name || ![plat, plon].every(Number.isFinite)) continue;
+      const id = row.id || `${name}|${plat}|${plon}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const categories = Array.isArray(row?.poi?.categories)
+        ? row.poi.categories.filter((c) => typeof c === 'string').slice(0, 4)
+        : [];
+      const primaryType = categories[0]
+        || (Array.isArray(row?.poi?.categorySet) && row.poi.categorySet[0]?.id != null
+          ? String(row.poi.categorySet[0].id)
+          : null);
+      const dist = Number.isFinite(row?.dist) ? Math.round(row.dist) : null;
+      places.push({
+        id: typeof row.id === 'string' ? row.id : null,
+        name: String(name).slice(0, 160),
+        distanceM: dist,
+        primaryType,
+        types: categories,
+        lat: plat,
+        lon: plon,
+      });
+    }
+    places.sort((a, b) => (a.distanceM ?? 1e12) - (b.distanceM ?? 1e12));
+    return {
+      origin: { lat, lon },
+      radiusM,
+      places,
+    };
+  }
+
+  /**
+   * Shared memory+disk+budget path for non-tile JSON endpoints (reachable-range,
+   * reverse-geocode, nearby-poi). Sanitized bodies only.
+   */
+  async function serveCachedRouteJson(cacheKey, fetchBody, sendJson) {
+    const now = Date.now();
+    let entry = routeMem.get(cacheKey);
+    if (!entry) {
+      entry = await readDiskRoute(cacheKey);
+      if (entry) routeMemSet(cacheKey, entry);
+    }
+    if (entry && now - entry.at < ROUTE_TTL_MS) {
+      sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'HIT' });
+      return;
+    }
+    if (isTomTomOverBudget(currentRouteBudget(), dailyRouteBudgetLimit())) {
+      if (entry) {
+        sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'STALE-BUDGET' });
+      } else {
+        sendJson(429, { error: 'budget' });
+      }
+      return;
+    }
+    if (!routeInflight.has(cacheKey)) {
+      routeInflight.set(cacheKey, fetchBody()
+        .then(async (body) => {
+          const fresh = { at: Date.now(), body };
+          routeMemSet(cacheKey, fresh);
+          await writeDiskRoute(cacheKey, body);
+          return fresh;
+        })
+        .catch((err) => {
+          console.warn(`[tomtom-proxy] ${cacheKey} failed (${err?.message || err})`);
+          return null;
+        })
+        .finally(() => routeInflight.delete(cacheKey)));
+    }
+    const fresh = await routeInflight.get(cacheKey);
+    if (fresh) {
+      sendJson(200, { ...fresh.body, cached: false }, { 'x-tomtom-cache': 'MISS' });
+    } else if (entry) {
+      sendJson(200, { ...entry.body, cached: true }, { 'x-tomtom-cache': 'STALE-ERROR' });
+    } else {
+      sendJson(502, { error: 'upstream' });
+    }
   }
 
   return {
@@ -1868,12 +2165,94 @@ function tomtomProxy() {
 
         try {
           await loadBudgetOnce();
-          const urlPath = String(req.url || '').split('?')[0];
+          await loadRouteBudgetOnce();
+          const rawUrl = String(req.url || '');
+          const urlPath = rawUrl.split('?')[0];
+          const query = new URLSearchParams(rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?') + 1) : '');
 
           if (urlPath === '/status') {
             const hasKey = Boolean(process.env.TOMTOM_API_KEY);
             const b = currentBudget();
-            sendJson(200, { hasKey, dailyCount: b.count, budget: dailyBudgetLimit(), date: b.date });
+            const rb = currentRouteBudget();
+            sendJson(200, {
+              hasKey,
+              dailyCount: b.count,
+              budget: dailyBudgetLimit(),
+              routeDailyCount: rb.count,
+              routeBudget: dailyRouteBudgetLimit(),
+              date: b.date,
+            });
+            return;
+          }
+
+          if (urlPath === '/reachable-range') {
+            if (!process.env.TOMTOM_API_KEY) {
+              sendJson(503, { error: 'no_key' });
+              return;
+            }
+            const lat = Number.parseFloat(query.get('lat') || '');
+            const lon = Number.parseFloat(query.get('lon') || '');
+            const minutes = Number.parseInt(query.get('minutes') || '', 10);
+            if (![lat, lon].every(Number.isFinite) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+              sendJson(400, { error: 'invalid_origin' });
+              return;
+            }
+            if (!ALLOWED_ROUTE_MINUTES.has(minutes)) {
+              sendJson(400, { error: 'invalid_minutes' });
+              return;
+            }
+            // ~110 m grid — matches Sites client cache key rounding.
+            const cacheKey = `reach-${lat.toFixed(3)},${lon.toFixed(3)},${minutes}`;
+            await serveCachedRouteJson(
+              cacheKey,
+              () => fetchReachableRangeUpstream(lat, lon, minutes),
+              sendJson,
+            );
+            return;
+          }
+
+          if (urlPath === '/reverse-geocode') {
+            if (!process.env.TOMTOM_API_KEY) {
+              sendJson(503, { error: 'no_key' });
+              return;
+            }
+            const lat = Number.parseFloat(query.get('lat') || '');
+            const lon = Number.parseFloat(query.get('lon') || '');
+            if (![lat, lon].every(Number.isFinite) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+              sendJson(400, { error: 'invalid_origin' });
+              return;
+            }
+            const cacheKey = `rev-${lat.toFixed(3)},${lon.toFixed(3)}`;
+            await serveCachedRouteJson(
+              cacheKey,
+              () => fetchReverseGeocodeUpstream(lat, lon),
+              sendJson,
+            );
+            return;
+          }
+
+          if (urlPath === '/nearby-poi') {
+            if (!process.env.TOMTOM_API_KEY) {
+              sendJson(503, { error: 'no_key' });
+              return;
+            }
+            const lat = Number.parseFloat(query.get('lat') || '');
+            const lon = Number.parseFloat(query.get('lon') || '');
+            const radiusRaw = Number.parseInt(query.get('radius') || '5000', 10);
+            const radiusM = Number.isFinite(radiusRaw)
+              ? Math.max(50, Math.min(50000, radiusRaw))
+              : 5000;
+            if (![lat, lon].every(Number.isFinite) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+              sendJson(400, { error: 'invalid_origin' });
+              return;
+            }
+            // Fixed retail categorySet server-side — clients cannot widen the query.
+            const cacheKey = `poi-${lat.toFixed(3)},${lon.toFixed(3)},${radiusM}`;
+            await serveCachedRouteJson(
+              cacheKey,
+              () => fetchNearbyPoiUpstream(lat, lon, radiusM),
+              sendJson,
+            );
             return;
           }
 
@@ -1946,6 +2325,139 @@ function tomtomProxy() {
           sendJson(500, { error: 'proxy' });
         }
       });
+    },
+  };
+}
+
+/**
+ * George Municipality Integrated Zoning (CITP FeatureServer/16) bbox proxy.
+ *
+ * Upstream:
+ *   https://gis.george.gov.za/server/rest/services/Hosted/CITP/FeatureServer/16/query
+ *
+ * Never downloads the full ~54k polygon layer. Envelope around the open pin
+ * only (`resultRecordCount` capped). Browser hits same-origin
+ * `/api/george-zoning?lat=&lon=` so CORS is bypassed in Vite
+ * dev/preview; static hosts without this middleware fall through to the
+ * client's honest fail / local GeoJSON path.
+ *
+ * GET /api/george-zoning?lat=&lon= → GeoJSON FeatureCollection (+ attribution)
+ */
+function georgeZoningProxy() {
+  const UPSTREAM = 'https://gis.george.gov.za/server/rest/services/Hosted/CITP/FeatureServer/16/query';
+  /** ~275 m half-width at mid-latitudes — enough for a pin, far below full layer. */
+  const HALF_DEG = 0.0025;
+  const RESULT_RECORD_COUNT = 25;
+  const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+  /** @type {Map<string, {at:number, body:object}>} */
+  const memory = new Map();
+
+  function sendJson(res, status, obj, extraHeaders = {}) {
+    if (res.headersSent) return;
+    res.writeHead(status, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      ...extraHeaders,
+    });
+    res.end(JSON.stringify(obj));
+  }
+
+  async function fetchUpstream(lat, lon) {
+    const geometry = JSON.stringify({
+      xmin: lon - HALF_DEG,
+      ymin: lat - HALF_DEG,
+      xmax: lon + HALF_DEG,
+      ymax: lat + HALF_DEG,
+    });
+    const qs = new URLSearchParams({
+      geometry,
+      geometryType: 'esriGeometryEnvelope',
+      inSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects',
+      outFields: 'zoning,zoning_code,land_use,town',
+      returnGeometry: 'true',
+      outSR: '4326',
+      f: 'geojson',
+      resultRecordCount: String(RESULT_RECORD_COUNT),
+    });
+    const upstream = await fetch(`${UPSTREAM}?${qs}`, {
+      signal: AbortSignal.timeout(15000),
+      headers: { Accept: 'application/geo+json, application/json' },
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      const error = new Error(`upstream HTTP ${upstream.status}`);
+      error.upstreamStatus = upstream.status;
+      throw error;
+    }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('malformed upstream geojson');
+    }
+    if (!data || typeof data !== 'object') throw new Error('malformed upstream body');
+    return data;
+  }
+
+  function install(middlewares) {
+    middlewares.use('/api/george-zoning', async (req, res) => {
+      try {
+        if (req.method !== 'GET') {
+          sendJson(res, 405, { error: 'method' });
+          return;
+        }
+        const rawUrl = String(req.url || '');
+        const query = new URLSearchParams(
+          rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?') + 1) : '',
+        );
+        const lat = Number.parseFloat(query.get('lat') || '');
+        const lon = Number.parseFloat(query.get('lon') || '');
+        if (
+          ![lat, lon].every(Number.isFinite)
+          || lat < -90 || lat > 90
+          || lon < -180 || lon > 180
+        ) {
+          sendJson(res, 400, { error: 'invalid_origin' });
+          return;
+        }
+
+        const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+        const hit = memory.get(cacheKey);
+        if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+          sendJson(res, 200, hit.body, { 'x-george-zoning-cache': 'HIT' });
+          return;
+        }
+
+        const data = await fetchUpstream(lat, lon);
+        const body = {
+          type: data.type || 'FeatureCollection',
+          features: Array.isArray(data.features) ? data.features : [],
+          attribution: 'George Municipality Integrated Zoning (CITP)',
+          municipality: 'George Municipality',
+          query: { lat, lon, halfDegrees: HALF_DEG, resultRecordCount: RESULT_RECORD_COUNT },
+        };
+        memory.set(cacheKey, { at: Date.now(), body });
+        sendJson(res, 200, body, { 'x-george-zoning-cache': 'MISS' });
+      } catch (err) {
+        console.warn('[george-zoning-proxy]', err?.message || err);
+        sendJson(res, 502, {
+          error: 'upstream',
+          message:
+            'George zoning FeatureServer unavailable (network/CORS). '
+            + 'Drop a GeoJSON extract at public/sites/zoning.geojson.',
+        });
+      }
+    });
+  }
+
+  return {
+    name: 'george-zoning-proxy',
+    configureServer(server) {
+      install(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      install(server.middlewares);
     },
   };
 }
@@ -4990,7 +5502,7 @@ function openAiRealtimeProxy() {
           body: JSON.stringify({
             model: process.env.OPENAI_HUD_SUMMARY_MODEL || OPENAI_HUD_SUMMARY_MODEL_DEFAULT,
             instructions: [
-              "Write one concise intelligence-HUD summary for God's Eye View.",
+              "Write one concise intelligence-HUD summary for Volee.",
               'Use only the supplied place, street, nearby-place, and enabled-layer text labels.',
               'Prefer the clearest named place and include a relevant enabled layer only when useful.',
               'Do not infer from coordinates or invent a place.',
@@ -5114,7 +5626,7 @@ function openAiRealtimeProxy() {
             output: { voice },
           },
           instructions: [
-            "You are GEV Voice Control, a concise voice controller for a Cesium geospatial app called God's Eye View.",
+            "You are Volee Voice Control, a concise voice controller for a Cesium geospatial app called Volee.",
             'Have a natural spoken conversation with the user while the mic session is active.',
             'Do not require a wake phrase. Treat direct commands like "zoom into London" or "open datacenters" as GEV control requests.',
             'Only control the app by calling the provided tools. Never invent tool names or arguments.',
@@ -5420,6 +5932,11 @@ function googlePlacesContextProxy() {
       const latitude = Number(requestUrl.searchParams.get('lat'));
       const longitude = Number(requestUrl.searchParams.get('lon'));
       const radiusM = Math.max(50, Math.min(50000, Number(requestUrl.searchParams.get('radiusM')) || 4000));
+      const regionCode = String(requestUrl.searchParams.get('regionCode') || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+        .slice(0, 2);
       if (!textQuery || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
         res.statusCode = 400;
         res.setHeader('Content-Type', 'application/json');
@@ -5452,6 +5969,7 @@ function googlePlacesContextProxy() {
               },
             },
             maxResultCount: 5,
+            ...(regionCode ? { regionCode } : {}),
           }),
         });
         const data = await response.json().catch(() => ({}));
@@ -5498,6 +6016,275 @@ function googlePlacesContextProxy() {
         res.end(JSON.stringify({ error: error?.message || 'Google Places request failed', places: [] }));
       }
     });
+
+    // Forward geocode for the location search box. Country restriction
+    // (`components=country:ZA` on Volee) is applied server-side so “George”
+    // cannot resolve to Utah. Key stays on the server for this path.
+    middlewares.use('/api/google/geocode', async (req, res) => {
+      if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed', status: 'ERROR', results: [] }));
+        return;
+      }
+
+      const _grl = googleRateLimiter();
+      if (_grl && !_grl(clientKey(req))) {
+        res.statusCode = 429;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Retry-After', '5');
+        res.end(JSON.stringify({ error: 'Rate limit exceeded', status: 'OVER_QUERY_LIMIT', results: [] }));
+        return;
+      }
+
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          error: 'GOOGLE_MAPS_API_KEY is not set',
+          status: 'REQUEST_DENIED',
+          results: [],
+        }));
+        return;
+      }
+
+      const requestUrl = new URL(req.url || '', 'http://localhost');
+      const textQuery = String(requestUrl.searchParams.get('q') || '').trim();
+      const country = String(requestUrl.searchParams.get('country') || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+        .slice(0, 2);
+      const bounds = String(requestUrl.searchParams.get('bounds') || '').trim();
+      if (!textQuery) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'q is required', status: 'INVALID_REQUEST', results: [] }));
+        return;
+      }
+
+      try {
+        const upstream = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+        upstream.searchParams.set('address', textQuery);
+        upstream.searchParams.set('key', apiKey);
+        if (country) upstream.searchParams.set('components', `country:${country}`);
+        // Soft viewport bias only — country components above are the hard gate.
+        if (bounds && /^-?\d+(\.\d+)?,-?\d+(\.\d+)?\|-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(bounds)) {
+          upstream.searchParams.set('bounds', bounds);
+        }
+        const response = await fetch(upstream);
+        const data = await response.json().catch(() => ({}));
+        const status = data.status || (response.ok ? 'UNKNOWN' : 'ERROR');
+        res.statusCode = response.ok ? 200 : response.status;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'private, max-age=120');
+        res.end(JSON.stringify({
+          status,
+          results: Array.isArray(data.results) ? data.results : [],
+          error: status === 'OK' || status === 'ZERO_RESULTS'
+            ? null
+            : (data.error_message || data.error || 'Geocoding request failed'),
+        }));
+      } catch (error) {
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({
+          error: error?.message || 'Geocoding request failed',
+          status: 'ERROR',
+          results: [],
+        }));
+      }
+    });
+
+    // Places Autocomplete (New) — as-you-type SA suggestions for the location bar.
+    middlewares.use('/api/google/autocomplete', async (req, res) => {
+      if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed', suggestions: [] }));
+        return;
+      }
+
+      const _grl = googleRateLimiter();
+      if (_grl && !_grl(clientKey(req))) {
+        res.statusCode = 429;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Retry-After', '5');
+        res.end(JSON.stringify({ error: 'Rate limit exceeded', suggestions: [] }));
+        return;
+      }
+
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'GOOGLE_MAPS_API_KEY is not set', suggestions: [] }));
+        return;
+      }
+
+      const requestUrl = new URL(req.url || '', 'http://localhost');
+      const textQuery = String(requestUrl.searchParams.get('q') || '').trim();
+      const regionParam = String(requestUrl.searchParams.get('region') || 'za');
+      const regionCodes = regionParam
+        .split(',')
+        .map((code) => code.trim().toLowerCase())
+        .filter((code) => /^[a-z]{2}$/.test(code))
+        .slice(0, 5);
+      if (!textQuery) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'q is required', suggestions: [] }));
+        return;
+      }
+
+      try {
+        const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': [
+              'suggestions.placePrediction.placeId',
+              'suggestions.placePrediction.text',
+              'suggestions.placePrediction.structuredFormat',
+              'suggestions.placePrediction.types',
+            ].join(','),
+          },
+          body: JSON.stringify({
+            input: textQuery,
+            includedRegionCodes: regionCodes.length ? regionCodes : ['za'],
+            includeQueryPredictions: false,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        const suggestions = Array.isArray(data.suggestions)
+          ? data.suggestions
+            .map((entry) => {
+              const prediction = entry?.placePrediction;
+              if (!prediction?.placeId) return null;
+              const label = prediction.text?.text
+                || [prediction.structuredFormat?.mainText?.text, prediction.structuredFormat?.secondaryText?.text]
+                  .filter(Boolean)
+                  .join(', ');
+              if (!label) return null;
+              return {
+                placeId: prediction.placeId,
+                label,
+                mainText: prediction.structuredFormat?.mainText?.text || label,
+                secondaryText: prediction.structuredFormat?.secondaryText?.text || '',
+                types: Array.isArray(prediction.types) ? prediction.types.slice(0, 8) : [],
+              };
+            })
+            .filter(Boolean)
+            .slice(0, 8)
+          : [];
+        res.statusCode = response.ok ? 200 : response.status;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'private, max-age=60');
+        res.end(JSON.stringify({
+          suggestions,
+          error: response.ok ? null : data.error?.message || 'Autocomplete request failed',
+        }));
+      } catch (error) {
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({
+          error: error?.message || 'Autocomplete request failed',
+          suggestions: [],
+        }));
+      }
+    });
+
+    // Place Details (New) — lat/lng for an Autocomplete place id.
+    middlewares.use('/api/google/place', async (req, res) => {
+      if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed', place: null }));
+        return;
+      }
+
+      const _grl = googleRateLimiter();
+      if (_grl && !_grl(clientKey(req))) {
+        res.statusCode = 429;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Retry-After', '5');
+        res.end(JSON.stringify({ error: 'Rate limit exceeded', place: null }));
+        return;
+      }
+
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'GOOGLE_MAPS_API_KEY is not set', place: null }));
+        return;
+      }
+
+      const requestUrl = new URL(req.url || '', 'http://localhost');
+      const placeId = String(requestUrl.searchParams.get('id') || '').trim();
+      if (!placeId || !/^[A-Za-z0-9_-]{10,200}$/.test(placeId)) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Valid id is required', place: null }));
+        return;
+      }
+
+      try {
+        const resourceName = placeId.startsWith('places/') ? placeId : `places/${placeId}`;
+        const response = await fetch(`https://places.googleapis.com/v1/${resourceName}`, {
+          method: 'GET',
+          headers: {
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': [
+              'id',
+              'displayName',
+              'formattedAddress',
+              'location',
+              'viewport',
+              'types',
+              'primaryType',
+            ].join(','),
+          },
+        });
+        const data = await response.json().catch(() => ({}));
+        const latitude = data.location?.latitude ?? null;
+        const longitude = data.location?.longitude ?? null;
+        const vp = data.viewport;
+        const viewport = (
+          Number.isFinite(vp?.low?.latitude) && Number.isFinite(vp?.low?.longitude)
+          && Number.isFinite(vp?.high?.latitude) && Number.isFinite(vp?.high?.longitude)
+        ) ? {
+          low: { latitude: vp.low.latitude, longitude: vp.low.longitude },
+          high: { latitude: vp.high.latitude, longitude: vp.high.longitude },
+        } : null;
+        const place = Number.isFinite(latitude) && Number.isFinite(longitude) ? {
+          id: data.id || placeId,
+          name: data.displayName?.text || null,
+          address: data.formattedAddress || null,
+          latitude,
+          longitude,
+          viewport,
+          types: Array.isArray(data.types) ? data.types.slice(0, 8) : [],
+          primaryType: data.primaryType || null,
+        } : null;
+        res.statusCode = response.ok ? 200 : response.status;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        res.end(JSON.stringify({
+          place,
+          error: response.ok ? null : data.error?.message || 'Place details request failed',
+        }));
+      } catch (error) {
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({
+          error: error?.message || 'Place details request failed',
+          place: null,
+        }));
+      }
+    });
   }
 
   return {
@@ -5535,7 +6322,7 @@ const GEV_REALTIME_TOOLS = [
   {
     type: 'function',
     name: 'fly_to_location',
-    description: "Fly the God's Eye View camera to a known city, geocoded country/region/city/landmark, or explicit WGS84 coordinate. Countries/cities frame the whole place; landmarks/buildings use close framing.",
+    description: "Fly the Volee camera to a known city, geocoded country/region/city/landmark, or explicit WGS84 coordinate. Countries/cities frame the whole place; landmarks/buildings use close framing.",
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -5632,7 +6419,7 @@ const GEV_REALTIME_TOOLS = [
   {
     type: 'function',
     name: 'set_layer_visibility',
-    description: "Enable or disable one registered God's Eye View data layer.",
+    description: "Enable or disable one registered Volee data layer.",
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -5640,7 +6427,7 @@ const GEV_REALTIME_TOOLS = [
         layerId: {
           type: 'string',
           description:
-            'Common-name mapping for the non-obvious ids: space mission(s) → rocket-launches; fires/wildfires/active fires → local-firms (NASA FIRMS); ships/vessels/boats → ais-live-vessels; undersea/submarine cables → telegeography-submarine-cables; datacenters → local-datacenters; dams → local-dams; bikes/bike share → bikeshare; street traffic/congestion → traffic; traffic cameras → cctv; internet radio/stations → radio.',
+            'Common-name mapping for the non-obvious ids: space mission(s) → rocket-launches; fires/wildfires/active fires → local-firms (NASA FIRMS); ships/vessels/boats → ais-live-vessels; undersea/submarine cables → telegeography-submarine-cables; datacenters → local-datacenters; dams → local-dams; bikes/bike share → bikeshare; street traffic/congestion → traffic; traffic cameras → cctv; internet radio/stations → radio; sites/KMZ/property pins → sites.',
           enum: [
             'flights',
             'military',
@@ -5656,6 +6443,7 @@ const GEV_REALTIME_TOOLS = [
             'local-dams',
             'telegeography-submarine-cables',
             'local-firms',
+            'sites',
           ],
         },
         enabled: { type: 'boolean' },
@@ -5687,6 +6475,7 @@ const GEV_REALTIME_TOOLS = [
             'local-dams',
             'telegeography-submarine-cables',
             'local-firms',
+            'sites',
           ],
           description: 'Optional layer row to scroll into view and highlight.',
         },
@@ -5756,7 +6545,7 @@ const GEV_REALTIME_TOOLS = [
   {
     type: 'function',
     name: 'set_visual_style',
-    description: "Set the active God's Eye View visual filter/style.",
+    description: "Set the active Volee visual filter/style.",
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -6989,9 +7778,10 @@ function rssTag(block, tag) {
   return decodeRssText(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(block)?.[1] || '');
 }
 
-function normalizeRssArticles(xml, limit = 5) {
+function normalizeRssArticles(xml, limit = 5, topicHint = null) {
   const seen = new Set();
   const articles = [];
+  const max = Math.max(1, Math.min(AREA_NEWS_MAX_ARTICLES, limit));
   for (const match of String(xml || '').matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
     const item = match[1];
     const title = rssTag(item, 'title').slice(0, 180);
@@ -7004,14 +7794,16 @@ function normalizeRssArticles(xml, limit = 5) {
     if (seen.has(signature)) continue;
     seen.add(signature);
     const rawDate = rssTag(item, 'pubDate');
+    const topic = topicHint || classifyAreaNewsTopic(title);
     articles.push({
       title,
       url: parsedUrl.href,
       domain: source || parsedUrl.hostname.replace(/^www\./, ''),
       publishedAt: Number.isNaN(Date.parse(rawDate)) ? null : new Date(rawDate).toISOString(),
       sourceCountry: null,
+      topic,
     });
-    if (articles.length >= limit) break;
+    if (articles.length >= max) break;
   }
   return articles;
 }
@@ -7041,41 +7833,110 @@ function fetchRegionalPlace(point) {
   return task;
 }
 
-async function fetchRegionalNews(place) {
-  const query = place?.locality || place?.region || place?.country;
-  if (!query) return { status: 'unavailable', query: null, articles: [], source: null };
+async function fetchGoogleNewsRss(query, place, limit, topicHint = null) {
+  const locale = newsLocaleForPlace(place);
   const rssParams = new URLSearchParams({
     q: String(query).replace(/["\\]/g, ' ').trim(),
-    hl: 'en-US',
-    gl: 'US',
-    ceid: 'US:en',
+    hl: locale.hl,
+    gl: locale.gl,
+    ceid: locale.ceid,
   });
-  try {
-    const xml = await fetchRegionalText(`https://news.google.com/rss/search?${rssParams}`, {
-      headers: { 'User-Agent': 'GodsEyeView/0.1' },
-      timeoutMs: 12_000,
-    });
-    const articles = normalizeRssArticles(xml, 5);
-    if (articles.length) return { status: 'ready', query, articles, source: 'Google News RSS' };
-  } catch { /* fall through to the existing free index */ }
+  const xml = await fetchRegionalText(`https://news.google.com/rss/search?${rssParams}`, {
+    headers: { 'User-Agent': 'GodsEyeView/0.1' },
+    timeoutMs: 12_000,
+  });
+  return normalizeRssArticles(xml, limit, topicHint);
+}
+
+async function fetchGdeltArticles(query, limit) {
   const params = new URLSearchParams({
-    query: `"${String(query).replace(/["\\]/g, ' ').trim()}"`,
+    query: String(query).replace(/["\\]/g, ' ').trim(),
     mode: 'artlist',
     format: 'json',
-    maxrecords: '5',
+    maxrecords: String(Math.max(1, Math.min(AREA_NEWS_MAX_ARTICLES, limit))),
     sort: 'datedesc',
     timespan: '48h',
   });
-  try {
-    const payload = await fetchRegionalJson(`https://api.gdeltproject.org/api/v2/doc/doc?${params}`, {
-      headers: { 'User-Agent': 'GodsEyeView/0.1' },
-      timeoutMs: 12_000,
-    });
-    const articles = normalizeRegionalArticles(payload, 5);
-    return { status: articles.length ? 'ready' : 'empty', query, articles, source: 'GDELT fallback' };
-  } catch {
-    return { status: 'unavailable', query, articles: [], source: null };
+  const payload = await fetchRegionalJson(`https://api.gdeltproject.org/api/v2/doc/doc?${params}`, {
+    headers: { 'User-Agent': 'GodsEyeView/0.1' },
+    timeoutMs: 12_000,
+  });
+  return normalizeRegionalArticles(payload, limit);
+}
+
+/**
+ * Location-matched headlines. Cockpit uses a single locality query; Area News
+ * (`mode: 'area-news'`) prefers retail then business queries and ranks results.
+ */
+async function fetchRegionalNews(place, { mode = 'default' } = {}) {
+  const areaMode = mode === 'area-news';
+  const queries = areaMode
+    ? buildAreaNewsSearchQueries(place)
+    : (() => {
+      const q = place?.locality || place?.region || place?.country;
+      return q ? [{ topic: null, query: String(q).replace(/["\\]/g, ' ').trim() }] : [];
+    })();
+
+  if (!queries.length) {
+    return { status: 'unavailable', query: null, articles: [], source: null };
   }
+
+  const collected = [];
+  const seen = new Set();
+  let usedSource = null;
+  const perQueryLimit = areaMode ? 6 : 5;
+  const totalLimit = areaMode ? AREA_NEWS_MAX_ARTICLES : 5;
+
+  for (const entry of queries) {
+    try {
+      const rows = await fetchGoogleNewsRss(entry.query, place, perQueryLimit, entry.topic);
+      for (const row of rows) {
+        const signature = `${String(row.title).toLowerCase()}|${row.domain || ''}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        collected.push(row);
+      }
+      if (rows.length) usedSource = 'Google News RSS';
+    } catch { /* try next query / GDELT */ }
+    if (collected.length >= totalLimit) break;
+  }
+
+  if (!collected.length) {
+    try {
+      const raw = queries[0].query;
+      const fallbackQuery = areaMode ? raw : `"${String(raw).replace(/["\\]/g, ' ').trim()}"`;
+      const rows = await fetchGdeltArticles(fallbackQuery, totalLimit);
+      for (const row of rows) {
+        const withTopic = {
+          ...row,
+          topic: queries[0].topic || row.topic || classifyAreaNewsTopic(row.title),
+        };
+        const signature = `${String(withTopic.title).toLowerCase()}|${withTopic.domain || ''}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        collected.push(withTopic);
+      }
+      if (collected.length) usedSource = 'GDELT fallback';
+    } catch {
+      return {
+        status: 'unavailable',
+        query: queries.map((q) => q.query).join(' | '),
+        articles: [],
+        source: null,
+      };
+    }
+  }
+
+  const articles = areaMode
+    ? rankAndLimitAreaNews(collected, totalLimit)
+    : collected.slice(0, totalLimit);
+
+  return {
+    status: articles.length ? 'ready' : 'empty',
+    query: queries.map((q) => q.query).join(' | '),
+    articles,
+    source: usedSource,
+  };
 }
 
 async function fetchRegionalWeather(point) {
@@ -7101,19 +7962,20 @@ export function regionalBriefHasAnySource({ place, weather, news } = {}) {
 }
 
 function regionalBriefProxy() {
-  async function refresh(point, key) {
+  async function refresh(point, key, mode = 'default') {
     const [placeResult, weatherResult] = await Promise.allSettled([
       fetchRegionalPlace(point),
       fetchRegionalWeather(point),
     ]);
     const place = placeResult.status === 'fulfilled' ? placeResult.value : null;
     const weather = weatherResult.status === 'fulfilled' ? weatherResult.value : null;
-    const news = await fetchRegionalNews(place);
+    const news = await fetchRegionalNews(place, { mode });
     if (!regionalBriefHasAnySource({ place, weather, news })) {
       throw new Error('All regional briefing sources unavailable');
     }
     const payload = {
       status: place && weather && news.status !== 'unavailable' ? 'ready' : 'partial',
+      mode,
       retrievedAt: new Date().toISOString(),
       coordinates: point,
       place,
@@ -7149,7 +8011,9 @@ function regionalBriefProxy() {
         res.end(JSON.stringify({ error: 'Valid latitude and longitude are required' }));
         return;
       }
-      const key = `${(Math.round(point.latitude * 10) / 10).toFixed(1)},${(Math.round(point.longitude * 10) / 10).toFixed(1)}`;
+      const mode = url.searchParams.get('mode') === 'area-news' ? 'area-news' : 'default';
+      const cell = `${(Math.round(point.latitude * 10) / 10).toFixed(1)},${(Math.round(point.longitude * 10) / 10).toFixed(1)}`;
+      const key = mode === 'area-news' ? `${cell}:area-news` : cell;
       const now = Date.now();
       const cached = _regionalBriefCache.get(key);
       if (cached && now - cached.cachedAt <= REGIONAL_BRIEF_CACHE_MS) {
@@ -7157,7 +8021,7 @@ function regionalBriefProxy() {
         res.end(JSON.stringify({ ...cached.payload, status: 'cached' }));
         return;
       }
-      const request = coalesceProxyRequest(_regionalBriefInFlight, key, () => refresh(point, key));
+      const request = coalesceProxyRequest(_regionalBriefInFlight, key, () => refresh(point, key, mode));
       try {
         const payload = await request.promise;
         res.writeHead(200, {
@@ -7344,6 +8208,7 @@ export default defineConfig(({ mode }) => {
       openSkyProxy(),
       celestrakProxy(),
       tomtomProxy(),
+      georgeZoningProxy(),
       firmsProxy(),
       rocketLaunchesProxy(),
       terrainHeightsProxy(),

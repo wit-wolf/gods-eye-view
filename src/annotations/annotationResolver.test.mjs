@@ -194,6 +194,30 @@ function installGoogleMocks(t, handler) {
   });
 }
 
+/** Places Text Search (New) browser response shape used by near-view recovery. */
+function placesSearchTextPayload(places) {
+  return {
+    ok: true,
+    json: async () => ({
+      places: places.map((p) => ({
+        id: p.id || null,
+        displayName: p.name ? { text: p.name } : undefined,
+        formattedAddress: p.address || p.name || null,
+        location: {
+          latitude: p.latitude ?? p.lat,
+          longitude: p.longitude ?? p.lon,
+        },
+        types: p.types || [],
+        viewport: p.viewport || null,
+      })),
+    }),
+  };
+}
+
+function isPlacesSearchText(url) {
+  return String(url).includes('places.googleapis.com') && String(url).includes('searchText');
+}
+
 test('ask-side admin bypass: "the Texas Capitol" recovers near-view despite a far state-typed geocode', async (t) => {
   const calls = [];
   installGoogleMocks(t, async (url) => {
@@ -206,16 +230,13 @@ test('ask-side admin bypass: "the Texas Capitol" recovers near-view despite a fa
         label: 'Texas, USA',
       }) };
     }
-    assert.match(String(url), /^\/api\/google\/text-search\?/);
-    return {
-      ok: true,
-      json: async () => ({ places: [{
-        latitude: 30.2747,
-        longitude: -97.7404,
-        name: 'Texas Capitol',
-        types: ['premise'],
-      }] }),
-    };
+    assert.ok(isPlacesSearchText(url));
+    return placesSearchTextPayload([{
+      latitude: 30.2747,
+      longitude: -97.7404,
+      name: 'Texas Capitol',
+      types: ['premise'],
+    }]);
   });
 
   const resolved = await resolveAnnotationTarget({
@@ -279,8 +300,8 @@ for (const fixture of [
           label: `${fixture.target}, USA`,
         }) };
       }
-      assert.match(String(url), /^\/api\/google\/text-search\?/);
-      return { ok: true, json: async () => ({ places: [] }) };
+      assert.ok(isPlacesSearchText(url));
+      return placesSearchTextPayload([]);
     });
 
     const resolved = await resolveAnnotationTarget({
@@ -305,8 +326,8 @@ test('ask-side admin bypass: bare "Texas" remains on the guarded recovery path',
         label: 'Texas, USA',
       }) };
     }
-    assert.match(String(url), /^\/api\/google\/text-search\?/);
-    return { ok: true, json: async () => ({ places: [] }) };
+    assert.ok(isPlacesSearchText(url));
+    return placesSearchTextPayload([]);
   });
 
   const resolved = await resolveAnnotationTarget({
@@ -335,16 +356,13 @@ test('ask-side admin bypass: admin level 2/3 result types never grant a township
         label: `${query}, Illinois`,
       }) };
     }
-    assert.match(String(url), /^\/api\/google\/text-search\?/);
-    return {
-      ok: true,
-      json: async () => ({ places: [{
-        latitude: 30.2680,
-        longitude: -97.7425,
-        name: 'Local township fixture',
-        types: ['locality'],
-      }] }),
-    };
+    assert.ok(isPlacesSearchText(url));
+    return placesSearchTextPayload([{
+      latitude: 30.2680,
+      longitude: -97.7425,
+      name: 'Local township fixture',
+      types: ['locality'],
+    }]);
   });
 
   for (const target of fixtures.keys()) {
@@ -357,7 +375,7 @@ test('ask-side admin bypass: admin level 2/3 result types never grant a township
   }
 
   assert.equal(
-    calls.filter((url) => url.startsWith('/api/google/text-search')).length,
+    calls.filter((url) => isPlacesSearchText(url)).length,
     2,
     'both township-level admin result types stay guarded',
   );

@@ -3,6 +3,132 @@
 This changelog records public product changes. For the authoritative description
 of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md).
 
+## [Unreleased] — 2026-09-02
+
+### Changed
+
+- Zoning / census sources (verified 2026-09-02): **no national zoning GeoJSON**.
+  Live `public/sites/zoning.geojson` and `census-wards.geojson` are **gitignored**
+  (committed templates: `zoning.example.geojson`, `census-wards.example.geojson`).
+  When local zoning is missing, research cards optionally bbox-query **George
+  Municipality Integrated Zoning** (CITP FeatureServer/16) via
+  `/api/george-zoning?lat=&lon=` — pin envelope + small `resultRecordCount`,
+  never the full ~54k layer. Attributes George Municipality; honest fail on
+  CORS/network → drop a GeoJSON extract. Demographics card states **Census 2022
+  small-area not public**; optional join on ward/`SAL_CODE` when a 2011
+  SAL/ward GeoJSON (+ SuperWEB2 CSV) is dropped locally — no invented LSM/
+  income. `DATA_SOURCES.md` lists George GIS, Cape Town Open Data zoning REST,
+  Joburg paid extract, Stats SA SuperWEB2, WCG Spatial Data Warehouse; does
+  **not** cite wazimap.co.za (404). Ancora live dump remains gitignored.
+
+## [Unreleased] — 2026-09-01
+
+### Added
+
+- **Ancora** Data Layers entry (amber centres, separate from Sites KMZ): loads
+  local `public/sites/ancora-centres.geojson` when present — **gitignored** so
+  live PropertyCentral occupancy never ships to GitHub. Committed template
+  `ancora-centres.example.geojson` (EXAMPLE centres). Research brief shows GLA,
+  units occupied/vacant, mandate_status, geocoded name/address with a
+  “geocoded (not surveyed)” note; occupancy % from unit counts only. Lists
+  known Places Text Search collisions from the 2026-09-02 dump.
+- Optional **zoning** and **census/ward** GeoJSON joins on Sites and Ancora
+  research cards (`public/sites/zoning.geojson`, `census-wards.geojson`, plus
+  `.example` templates). Hit → real properties only; miss/empty → honest copy.
+  No invented LSM, income, or municipal codes. No AfriGIS required.
+- Sites **PIN** (drop-pin) mode: toggle place mode, click empty globe to create a
+  persistent “Dropped pins” Sites point, open the research brief, Esc/CANCEL to
+  exit. Reverse-geocode locality prefers **TomTom Search** (`/api/tomtom/reverse-geocode`,
+  server `TOMTOM_API_KEY`); Nominatim via regional brief is the labeled fallback.
+  Competitor retail ring prefers **TomTom Places nearby** (`/api/tomtom/nearby-poi`,
+  shopping/market/shop/department categories) with Google Places Nearby as
+  fallback when the Maps key allows. Demographics / zoning use optional local
+  GeoJSON joins (above); PropertyCentral stays stubbed on Sites. Evaluation
+  search quota shares `TOMTOM_DAILY_ROUTE_BUDGET` with drive-time — over limit
+  degrades honestly (stale cache or fallback / message).
+  Research brief includes **Delete pin** (confirm) to remove one entity from the
+  globe and IndexedDB layer without RESET; Delete key when the card is open.
+  IMPORT chip tip: faster after first load (IndexedDB cache).
+- **Area News** Data Layers toggle (off by default): Sites-style widget with
+  retail-then-business headlines for the focused camera area (selected Sites
+  pin when open). Reuses `/api/regional-brief?mode=area-news` (Nominatim +
+  Google News RSS / GDELT fallback, ZA locale when in South Africa). Honest
+  empty/unavailable states — no invented articles.
+- Sites research brief **Access / traffic** section: live TomTom flow summary
+  near the pin (% free / slow / jam, closures, thin-coverage note) from the
+  existing flow-tile pipeline, labeled as a **current snapshot** (~2 min tile
+  cache) — not peak-hour historic. Keyless / unavailable shows the same honest
+  simulated state as the traffic layer (no invented live %).
+- Free-tier **drive-time catchment** (5 / 10 / 15 min) via TomTom
+  `calculateReachableRange` on same-origin `/api/tomtom/reachable-range`
+  (key server-side, 6 h cache, separate daily route budget). Distances only —
+  no invented demographics inside the rings.
+- Explicit **not wired yet** stubs on the research card for demographics /
+  LSM, zoning / SDF, PropertyCentral, and competitor density.
+
+### Changed
+
+- **Sites performance (SA overview):** cluster density scales with camera height —
+  country/province views use a much larger `pixelRange` and `minimumClusterSize`
+  so DEMO shows cluster bubbles instead of thousands of individual pins.
+  Clustering is paused during bulk paint, then rebuilt once. DEMO streams the
+  remainder in gentler idle batches, near-camera first. MSAA default lowered
+  to 2×; bloom stays off. DISPLAY gains a **Fast** preset (bloom/sharpen off,
+  3D tiles off, stronger clustering, smaller paint batches, 30 fps cap).
+- Sites **cluster counts** render as circular teal bubbles (count centered on a
+  dark disc with Sites outline) instead of bare white numerals; size tiers by
+  count. Zoom-in still de-clusters to single teal pins.
+- Product lockup renamed to **Volo by Volee** (was Eagle Eye by Volee).
+  `PRODUCT_BRANDING` drives document title, title bar, first-run, HUD, README.
+  Repo slug stays `gods-eye-view`.
+- Scope / scope-mask defaults **OFF** for cold start and globe reset (toggle
+  remains in DISPLAY; share links with `sc=1` still restore ON).
+- Opening a Sites research brief auto-collapses DISPLAY and positions the card
+  clear of the right-rail strip so property details stay readable.
+- **Google Photorealistic 3D Tiles default OFF** (OSM imagery cold start /
+  reset). DISPLAY has a clear **3D tiles** toggle; MAP SOURCE chips still
+  switch Google 3D / Bing / OSM. Share links with `map=photoreal` still restore
+  tiles ON.
+- Cold-start Cape Town home uses the city **overview** frame (high above the
+  bowl / Table Mountain), not the close landmark range.
+- Data Layers titles keyless traffic as **Traffic (simulated)** until a
+  `TOMTOM_API_KEY` is confirmed (then **Street Traffic**). Meta/chip already
+  said SIMULATED; the row name now matches.
+- **Bloom** (DISPLAY): soft cinematic glow post-process — optional, GPU cost.
+  Tooltip documents it; control unchanged.
+
+### Added
+
+- Absorbed Property Genius into this fork as the **Sites** data layer: KMZ/KML
+  import, Cesium globe rendering, a clickable **research brief** (KML fields +
+  nearby imported pins + notes — no Genius composite scores), local
+  persistence, and the November Google Earth Pins demo. The MapLibre Property
+  Genius app is no longer required to view those pins. Zoning UI, retail
+  scrapers, PropertyCentral, and Azure persistence remain deferred.
+- **Volee product profile** (`src/productProfile.js`): property-globe surface
+  that registers only Sites, traffic, FIRMS fires, earthquakes, and local
+  infrastructure layers. Aircraft, AIS, satellites, CCTV, radio, and voice stay
+  in-tree but do not register, start, or appear in the HUD.
+
+### Changed
+
+- Product chrome on this fork is branded **Volo by Volee** (window title,
+  header, first-run / property globe launcher, loading screen, README). The
+  GitHub repository name stays `wit-wolf/gods-eye-view`. Sites/KMZ import is
+  progressive and cancellable so large demos no longer freeze the tab.
+  Duplicate Cesium entity ids (preview→full stream / double DEMO) are skipped
+  instead of marking the layer UNAVAILABLE.
+- First-run missions are **Sites**, **Environmental** (quakes + FIRMS), and
+  **Explore**. Spy chrome (TOP SECRET banners, MIC tip, Detection, CRT/NVG/
+  FLIR/Noir/Snow) is hidden on the property profile; weather/fire presentation
+  remains via kept layers.
+- Location search is restricted to **South Africa** via browser Places API
+  (New) Text Search / Autocomplete / Place Details (`regionCode` /
+  `includedRegionCodes: za`) using the same referrer-restricted
+  `GOOGLE_MAPS_API_KEY` as Photorealistic 3D Tiles — not the Node geocode
+  proxy (referrer keys are denied server-side). “George” flies to Western
+  Cape. Missing key / Google denial surfaces an honest toast.
+
 ## [Unreleased] — 2026-08-24
 
 ### Added

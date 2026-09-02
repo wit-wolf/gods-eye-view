@@ -19,6 +19,7 @@ import { CITY_POIS } from './locations.js';
 import { composeLocalityTag } from './hudLocality.js';
 import { ellipsoidalToMslDisplayM, ensureGeoidReady, geoidHeight } from './data/geoid.js';
 import { getBasemapLabelContext } from './voice/gevActions.js';
+import { isProductFeatureEnabled, PRODUCT_BRANDING } from './productProfile.js';
 
 /** Color palettes keyed by shader mode; applied as CSS custom properties. */
 const HUD_COLORS = {
@@ -72,6 +73,8 @@ export class IntelHUD {
     this._currentStyle = 'normal';
     this._el = null;
     this._variant = 'tactical';
+    this._propertyPresentation = !isProductFeatureEnabled('intelClassification');
+    this._hudOpenAiSummary = isProductFeatureEnabled('hudOpenAiSummary');
     this._recBlinkState = true;
     this._updateInterval = null;
     this._recBlinkInterval = null;
@@ -143,18 +146,44 @@ export class IntelHUD {
     this._el = document.getElementById('intel-hud');
     if (!this._el) return;
 
+    const brand = PRODUCT_BRANDING;
+    const classification = this._propertyPresentation
+      ? brand.hudClassification
+      : 'TOP SECRET // SI-TK // NOFORN';
+    const systemLine = this._propertyPresentation
+      ? brand.hudSystemLine
+      : `${this._missionId}  ${this._sensorId}`;
+    const orbitalLine = this._propertyPresentation
+      ? 'GLOBE VIEW'
+      : `ORB: ${this._orbitNum}  PASS: DESC-${this._passNum}`;
+    const aisLine = this._propertyPresentation
+      ? ''
+      : '<div id="hud-ais-vessel" class="hud-ais-vessel">AIS: --</div>';
+    const edgeMeta = this._propertyPresentation
+      ? `<div id="hud-coll">TIME: --:--:--Z</div>
+        <div id="hud-ona">VIEW: --°</div>`
+      : `<div id="hud-coll">COLL: --:--:--Z</div>
+        <div id="hud-ona">ONA: --°</div>`;
+    const rightEdge = this._propertyPresentation
+      ? `<div>MAP</div>
+        <div>3D</div>
+        <div>LIVE</div>`
+      : `<div>BAND: PAN</div>
+        <div>BITS: 11</div>
+        <div>LVL: 1A</div>`;
+
     this._el.innerHTML = `
       <div class="hud-top-bar">
-        <span class="hud-top-bar-left">TOP SECRET // SI-TK // NOFORN</span>
-        <span class="hud-top-bar-center">${this._missionId}</span>
-        <span class="hud-top-bar-right">PAGE 1/1</span>
+        <span class="hud-top-bar-left">${classification}</span>
+        <span class="hud-top-bar-center">${this._propertyPresentation ? brand.hudTopCenter : this._missionId}</span>
+        <span class="hud-top-bar-right">${this._propertyPresentation ? brand.hudTopRight : 'PAGE 1/1'}</span>
       </div>
 
       <div class="hud-corner hud-top-left">
         <div class="hud-bracket">┌</div>
         <div class="hud-content">
-          <div class="hud-classification">TOP SECRET // SI-TK // NOFORN</div>
-          <div class="hud-system">${this._missionId}  ${this._sensorId}</div>
+          <div class="hud-classification">${classification}</div>
+          <div class="hud-system">${systemLine}</div>
           <div class="hud-mode" id="hud-mode">NORMAL</div>
           <div class="hud-summary-wrap">
             <div class="hud-summary-label">SUMMARY</div>
@@ -166,7 +195,7 @@ export class IntelHUD {
       <div class="hud-corner hud-top-right">
         <div class="hud-content" style="text-align:right">
           <div class="hud-rec"><span id="hud-rec-dot">●</span> REC  <span id="hud-timestamp">2026-01-01 00:00:00Z</span></div>
-          <div class="hud-orbital">ORB: ${this._orbitNum}  PASS: DESC-${this._passNum}</div>
+          <div class="hud-orbital">${orbitalLine}</div>
         </div>
         <div class="hud-bracket">┐</div>
       </div>
@@ -183,20 +212,17 @@ export class IntelHUD {
         <div class="hud-content" style="text-align:right">
           <div id="hud-gsd">GSD: --m  NIIRS: --</div>
           <div id="hud-alt">ALT: --m   SUN: --° EL</div>
-          <div id="hud-ais-vessel" class="hud-ais-vessel">AIS: --</div>
+          ${aisLine}
         </div>
         <div class="hud-bracket">┘</div>
       </div>
 
       <div class="hud-edge hud-left-edge">
-        <div id="hud-coll">COLL: --:--:--Z</div>
-        <div id="hud-ona">ONA: --°</div>
+        ${edgeMeta}
       </div>
 
       <div class="hud-edge hud-right-edge">
-        <div>BAND: PAN</div>
-        <div>BITS: 11</div>
-        <div>LVL: 1A</div>
+        ${rightEdge}
       </div>
 
       <div class="hud-bottom-bar">
@@ -231,11 +257,13 @@ export class IntelHUD {
       this._updateCameraData();
     }, 250);
 
-    // Semantic summary refresh cadence
-    this._summaryInterval = setInterval(() => {
-      if (!this._visible) return;
-      void this._updateSummary(true);
-    }, HUD_SUMMARY_INTERVAL_MS);
+    // Semantic summary refresh cadence (OpenAI — off on the property profile)
+    if (this._hudOpenAiSummary) {
+      this._summaryInterval = setInterval(() => {
+        if (!this._visible) return;
+        void this._updateSummary(true);
+      }, HUD_SUMMARY_INTERVAL_MS);
+    }
   }
 
   /**
@@ -620,6 +648,11 @@ export class IntelHUD {
    */
   async _updateSummary(animate = false, force = false) {
     const fallbackText = this._composeSummary();
+    if (!this._hudOpenAiSummary) {
+      this._setSummaryText(fallbackText, animate);
+      this._summaryDirty = false;
+      return;
+    }
     if (!this._latestMetrics) {
       this._setSummaryText(fallbackText, animate);
       return;
@@ -738,8 +771,8 @@ export class IntelHUD {
       this._el.style.setProperty('--hud-border', colors.border);
     }
 
-    // Auto show/hide
-    if (this._autoMode) {
+    // Auto show/hide — property profile never auto-promotes military looks
+    if (this._autoMode && !this._propertyPresentation) {
       if (MILITARY_STYLES.has(styleName)) {
         this.show();
       } else {

@@ -3,6 +3,7 @@ import { lookupNeighborhoodRing } from '../data/neighborhoodPolygons.js';
 import { lookupNaturalRegionOutline, findNaturalRegion } from '../data/naturalEarthRegions.js';
 import { registerDynamicCredit, NATURAL_EARTH_CREDIT } from '../data/dataCredits.js';
 import { isPickedWorldPosition } from '../data/scenePick.js';
+import { searchCountryCode, placesTextSearchNear } from '../search/googlePlacesSearch.js';
 
 /**
  * Annotation target resolver.
@@ -662,10 +663,8 @@ const placesCache = new Map(); // Text Search hits, keyed by query + rounded vie
  * View-biased Google Places TEXT SEARCH for a named landmark/POI. Geocoding
  * scatters obscure monument/POI names across the city; a Text Search biased to
  * the view centre lands on the ACTUAL feature near what the user is looking at.
- * Goes through the `/api/google/text-search` proxy (key stays server-side) and
- * returns the closest result, or null on no-match / transient failure. The
- * `viewport` (a lat/lng bounding box framing the place, or null) is carried
- * through so the resolver can SIZE a fallback grounds disc to the real feature.
+ * Uses the browser Places API (New) with the referrer-restricted Maps key —
+ * same path as HUD ZA search (Node proxies cannot use that key).
  * @returns {Promise<null | { lat:number, lon:number, label:string|null, distanceM:number,
  *   viewport:{low:{latitude:number,longitude:number},high:{latitude:number,longitude:number}}|null }>}
  */
@@ -673,41 +672,17 @@ async function placesTextSearch(query, centerLat, centerLon, radiusM, signal) {
   const q = String(query || '').trim();
   if (!q || !Number.isFinite(centerLat) || !Number.isFinite(centerLon)) return null;
 
-  const cacheKey = `${q.toLowerCase()}|${centerLat.toFixed(3)},${centerLon.toFixed(3)}|${radiusM}`;
+  const cacheKey = `${q.toLowerCase()}|${centerLat.toFixed(3)},${centerLon.toFixed(3)}|${radiusM}|${searchCountryCode()}`;
   const cached = cacheRead(placesCache, cacheKey);
   if (cached !== undefined) return cached;
 
-  const params = new URLSearchParams({
-    q,
-    lat: String(centerLat),
-    lon: String(centerLon),
-    radiusM: String(radiusM),
-  });
   try {
-    const response = await fetch(`/api/google/text-search?${params}`, { signal });
-    if (!response.ok) { negCache(placesCache, cacheKey, signal, false); return null; } // transient
-    const data = await response.json();
-    const hit = Array.isArray(data?.places)
-      ? data.places.find((p) => Number.isFinite(p?.latitude) && Number.isFinite(p?.longitude))
-      : null;
-    if (!hit) { negCache(placesCache, cacheKey, signal, true); return null; } // definitive no-match
-    const place = {
-      lat: hit.latitude,
-      lon: hit.longitude,
-      label: hit.name || null,
-      distanceM: approximateDistanceM(centerLat, centerLon, hit.latitude, hit.longitude),
-      viewport: hit.viewport || null,
-      // Entity identity/classification — the proxy already pays for these in its field
-      // mask, so keep them: `primaryType`/`types` classify the feature (point-like
-      // monument vs compound) and `id` is a stable identity key for future caching/dedup.
-      id: hit.id || null,
-      primaryType: hit.primaryType || null,
-      types: Array.isArray(hit.types) ? hit.types : [],
-    };
+    const place = await placesTextSearchNear(query, centerLat, centerLon, radiusM, signal);
+    if (!place) { negCache(placesCache, cacheKey, signal, true); return null; }
     cacheWrite(placesCache, cacheKey, place);
     return place;
   } catch {
-    negCache(placesCache, cacheKey, signal, false); // network/abort — transient
+    negCache(placesCache, cacheKey, signal, false);
     return null;
   }
 }

@@ -1,6 +1,14 @@
+/* Product surface cuts (Volee property globe) — keep markup for re-enable. */
+body.product-volee .product-surface-cut,
+body.product-volee #cctv-panel.product-surface-cut,
+body.product-volee #radio-panel.product-surface-cut,
+body.product-volee #global-context-panel.product-surface-cut {
+  display: none !important;
+}
+
 /* ═══════════════════════════════════════════════
-   GOD'S EYE VIEW — Dark Sci-Fi UI
-   Apple meets Blade Runner
+   VOLO BY VOLEE — Property globe UI
+   (fork of God's Eye View; repo slug unchanged)
    ═══════════════════════════════════════════════ */
 
 :root {
@@ -1815,6 +1823,7 @@ body.ui-clean-view #scene-runtime.active {
 
 /* ── Location Search ─────────────────────────── */
 .location-search-wrap {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0;
@@ -1868,6 +1877,51 @@ body.ui-clean-view #scene-runtime.active {
 
 #location-search.searching {
   opacity: 0.5;
+}
+
+.location-search-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: rgba(10, 14, 20, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.location-search-suggestions[hidden] {
+  display: none !important;
+}
+
+.location-search-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.location-search-suggestion strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.location-search-suggestion small {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.location-search-suggestion:hover,
+.location-search-suggestion.active {
+  background: rgba(0, 212, 255, 0.12);
 }
 
 /* ── Top-center Globe Actions ────────────────── */
@@ -9160,4 +9214,464 @@ body.scene-playback-mode #first-run-launcher {
   .first-run-arrow { transition: none; }
   /* Scrolling a tile into view must not animate either. */
   .first-run-choices { scroll-behavior: auto; }
+}
+
+/* ── Sites research brief ─────────────────────────────────────────── */
+.site-card-panel {
+  position: fixed;
+  top: 5.5rem;
+  /* Sit left of the collapsed DISPLAY strip so the brief is never under it. */
+  right: calc(var(--right-rail-x) + var(--right-collapsed-width, 132px) + 12px);
+  z-index: 120;
+  width: min(24rem, calc(100vw - 2rem - var(--right-rail-x) - var(--right-collapsed-width, 132px)));
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+  padding: 0.9rem 1rem 1.1rem;
+  border: 1px solid rgba(61, 214, 198, 0.35);
+  background:
+    linear-gradient(165deg, rgba(8, 18, 24, 0.94), rgba(6, 12, 18, 0.9));
+  color: #d7ece8;
+  font-family: "IBM Plex Mono", "Share Tech Mono", ui-monospace, monospace;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.site-card-panel[hidden] { display: none !important; }
+
+.site-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.site-card-kicker {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  color: rgba(61, 214, 198, 0.85);
+}
+
+.site-card-close {
+  border: 0;
+  background: transparent;
+  color: #9fb7b2;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.site-card-title {
+  margin: 0.45rem 0 0.7rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #f2fffb;
+}
+
+.site-card-section {
+  margin: 0 0 0.85rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(159, 183, 178, 0.18);
+}
+
+.site-card-section-title {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.4rem;
+  color: rgba(61, 214, 198, 0.9);
+}
+
+.site-card-identity {
+  margin: 0;
+}
+
+.site-card-identity > div,
+.site-card-attrs dl > div {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: 0.35rem;
+  margin-bottom: 0.28rem;
+  font-size: 0.72rem;
+}
+
+.site-card-identity dt,
+.site-card-attrs dt {
+  color: #7f9892;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.site-card-identity dd,
+.site-card-attrs dd {
+  margin: 0;
+  color: #d7ece8;
+  word-break: break-word;
+}
+
+.site-card-description {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: #e7f7f3;
+}
+
+.site-card-muted {
+  margin: 0 0 0.4rem;
+  font-size: 0.68rem;
+  color: #8ea8a2;
+  line-height: 1.4;
+}
+
+.site-card-nearby-summary {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  color: #e7f7f3;
+}
+
+.site-card-nearby-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-card-nearby-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  padding: 0.18rem 0;
+  border-bottom: 1px solid rgba(159, 183, 178, 0.12);
+}
+
+.site-card-dist {
+  color: #8ea8a2;
+  white-space: nowrap;
+}
+
+.site-card-live {
+  margin: 0.45rem 0 0;
+  font-size: 0.68rem;
+  color: #9fb7b2;
+}
+
+.site-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.65rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: #9fb7b2;
+}
+
+.site-card-field textarea {
+  width: 100%;
+  border: 1px solid rgba(159, 183, 178, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: #e7f7f3;
+  padding: 0.4rem 0.45rem;
+  font: inherit;
+  resize: vertical;
+}
+
+.site-card-field input[type="text"] {
+  width: 100%;
+  border: 1px solid rgba(159, 183, 178, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: #e7f7f3;
+  padding: 0.4rem 0.45rem;
+  font: inherit;
+}
+
+.site-card-locality-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  color: #cfe8e2;
+  line-height: 1.35;
+}
+
+.sites-place-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 1.4rem;
+  transform: translateX(-50%);
+  z-index: 130;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid rgba(61, 214, 198, 0.45);
+  background: rgba(8, 18, 24, 0.92);
+  color: #d7ece8;
+  font-family: "IBM Plex Mono", "Share Tech Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+.sites-place-hint[hidden] { display: none !important; }
+
+body.sites-place-mode .cesium-viewer,
+body.sites-place-mode .cesium-widget,
+body.sites-place-mode canvas {
+  cursor: crosshair !important;
+}
+
+.site-card-attrs {
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+}
+
+.site-card-attrs summary {
+  cursor: pointer;
+  color: #9fb7b2;
+  letter-spacing: 0.06em;
+}
+
+.site-card-attrs dl {
+  margin: 0.45rem 0 0;
+}
+
+.site-card-access-block {
+  margin: 0 0 0.7rem;
+}
+
+.site-card-access-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #8ea8a2;
+  margin: 0 0 0.3rem;
+}
+
+.site-card-access-list,
+.site-card-access-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-card-access-list li {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #cfe8e2;
+  margin: 0 0 0.25rem;
+}
+
+.site-card-access-notes li {
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: #8ea8a2;
+  margin: 0.35rem 0 0;
+}
+
+.site-card-research .site-card-stubs {
+  list-style: none;
+  margin: 0 0 0.45rem;
+  padding: 0;
+}
+
+.site-card-research .site-card-stubs li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.72rem;
+}
+
+.site-card-research .site-card-stubs strong {
+  color: #cfe8e2;
+  letter-spacing: 0.04em;
+}
+
+.site-card-research .site-card-stubs span {
+  color: #8ea8a2;
+  line-height: 1.35;
+}
+
+.site-card-geocode-note {
+  margin: 0 0 0.45rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(159, 183, 178, 0.35);
+  background: rgba(20, 40, 48, 0.55);
+  color: #b8cfc8;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.site-card-caveat-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: #8ea8a2;
+}
+
+.site-card-panel[data-card-mode="ancora"] {
+  border-color: rgba(232, 165, 75, 0.45);
+}
+
+.site-card-panel[data-card-mode="ancora"] .site-card-kicker {
+  color: rgba(232, 165, 75, 0.95);
+}
+
+.site-card-panel code {
+  font-size: 0.65rem;
+  color: #b8d4ce;
+}
+
+.site-card-actions .site-card-muted strong {
+  color: #cfe8e2;
+  font-weight: 600;
+}
+
+.site-card-delete {
+  align-self: stretch;
+  border: 1px solid rgba(220, 90, 90, 0.55);
+  background: rgba(90, 22, 22, 0.45);
+  color: #ffc9c9;
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+}
+
+.site-card-delete:hover,
+.site-card-delete:focus-visible {
+  background: rgba(140, 28, 28, 0.65);
+  border-color: rgba(255, 130, 130, 0.75);
+  color: #fff0f0;
+  outline: none;
+}
+
+@media (max-width: 720px) {
+  .site-card-panel {
+    top: auto;
+    bottom: 4.5rem;
+    right: 0.6rem;
+    left: 0.6rem;
+    width: auto;
+    max-height: 45vh;
+  }
+}
+
+/* ── Area News widget (Sites-style) ─────────────────────────────── */
+.area-news-panel {
+  position: fixed;
+  top: 5.5rem;
+  left: 0.9rem;
+  z-index: 118;
+  width: min(24rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+  padding: 0.9rem 1rem 1.1rem;
+  border: 1px solid rgba(61, 214, 198, 0.35);
+  background:
+    linear-gradient(165deg, rgba(8, 18, 24, 0.94), rgba(6, 12, 18, 0.9));
+  color: #d7ece8;
+  font-family: "IBM Plex Mono", "Share Tech Mono", ui-monospace, monospace;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.area-news-panel[hidden] { display: none !important; }
+
+.area-news-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.area-news-kicker {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  color: rgba(61, 214, 198, 0.85);
+}
+
+.area-news-close {
+  border: 0;
+  background: transparent;
+  color: #9fb7b2;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.area-news-title {
+  margin: 0.45rem 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e8f6f2;
+}
+
+.area-news-lede,
+.area-news-muted,
+.area-news-footnote {
+  margin: 0 0 0.7rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #8ea8a2;
+}
+
+.area-news-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.area-news-item {
+  margin: 0 0 0.65rem;
+  padding: 0;
+}
+
+.area-news-item a {
+  display: grid;
+  gap: 0.15rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.area-news-item a:hover .area-news-headline {
+  color: #3dd6c6;
+}
+
+.area-news-topic {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(61, 214, 198, 0.75);
+}
+
+.area-news-headline {
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #cfe8e2;
+  font-weight: 600;
+}
+
+.area-news-meta {
+  font-size: 0.68rem;
+  color: #8ea8a2;
+}
+
+.area-news-footnote {
+  margin-bottom: 0;
+  border-top: 1px solid rgba(61, 214, 198, 0.15);
+  padding-top: 0.55rem;
+}
+
+@media (max-width: 720px) {
+  .area-news-panel {
+    top: auto;
+    bottom: 4.5rem;
+    left: 0.6rem;
+    right: 0.6rem;
+    width: auto;
+    max-height: 40vh;
+  }
+
+  body.site-card-open .area-news-panel {
+    display: none !important;
+  }
 }

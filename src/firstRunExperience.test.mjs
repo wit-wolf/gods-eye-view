@@ -402,10 +402,18 @@ test('the menu is the four owner-ordered missions', () => {
   // went is the one-click globe-scale dump. Restoring the tile needs the
   // globe-LOD declutter first.
   assert.deepEqual(Object.keys(FIRST_RUN_MISSIONS), [
-    'contacts', 'space-missions', 'environmental', 'explore',
+    'contacts', 'space-missions', 'sites', 'environmental', 'explore',
   ]);
   assert.equal(FIRST_RUN_MISSIONS.infrastructure, undefined,
     'the infrastructure mission must be gone, not dormant');
+});
+
+test('Sites mission enables the Sites layer and pulls out to the globe', async () => {
+  const spy = missionSpy();
+  const outcome = await runFirstRunChoice('sites', spy.deps);
+  assert.equal(outcome.ok, true);
+  assert.deepEqual(spy.calls.layerIds, ['sites']);
+  assert.equal(spy.calls.globeFlights, 1);
 });
 
 test('Live Contacts and Space Missions go through the one setContextMode facade', async () => {
@@ -549,8 +557,8 @@ test('markup, startup ordering and accessibility remain pinned', () => {
   const main = fs.readFileSync(new URL('./main.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 
-  assert.match(html, /id="first-run-launcher" role="dialog"[^>]*aria-labelledby="first-run-title"[^>]*hidden/);
-  assert.equal((html.match(/data-first-run-choice=/g) || []).length, 4);
+  assert.match(html, /id="first-run-launcher" role="dialog"[^>]*aria-labelledby="first-run-title"[^>]*aria-describedby="first-run-description"[^>]*hidden/);
+  assert.equal((html.match(/data-first-run-choice=/g) || []).length, 3);
   assert.match(html, /data-first-run-status[^>]*role="status"[^>]*aria-live="polite"/);
   assert.match(html, /<input type="checkbox" data-first-run-suppress \/>/);
   assert.match(html, /<strong data-first-run-environmental-title>/);
@@ -562,18 +570,18 @@ test('markup, startup ordering and accessibility remain pinned', () => {
   assert.match(visible, /earthquakes/i);
   assert.match(visible, /fires?/i, 'the tile must promise the fires it enables');
 
-  // The card's one persuasive line is OWNER-AUTHORED and pinned verbatim,
-  // unspaced em dash included. This is copy, not prose to be improved in a
-  // passing edit — changing it needs the owner, not a nicer-sounding rewrite.
   assert.ok(
-    html.includes('<p id="first-run-description">It feels like a forbidden cockpit'
-      + '—then you realize the sources are public and the data is real.</p>'),
-    'the final first-run line must ship exactly as written',
+    html.includes('<p id="first-run-description">Photoreal sites, weather, and fires on one globe'
+      + '—for property work, not a spy console.</p>'),
+    'first-run copy must describe the property globe',
   );
+  assert.doesNotMatch(html, /MIC button/);
+  assert.doesNotMatch(html, /data-first-run-choice="contacts"/);
+  assert.doesNotMatch(html, /data-first-run-choice="space-missions"/);
 
-  // Menu order is the owner's, read straight off the markup.
+  // Menu order is Sites → Environmental → Explore for the property product.
   const order = [...html.matchAll(/data-first-run-choice="([a-z-]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(order, ['contacts', 'space-missions', 'environmental', 'explore']);
+  assert.deepEqual(order, ['sites', 'environmental', 'explore']);
   assert.doesNotMatch(html, /data-first-run-choice="infrastructure"/,
     'the removed tile must leave no markup behind');
 
@@ -653,10 +661,10 @@ test('the voice TOOL SCHEMA is byte-identical to main — the mission mapping is
   const end = src.indexOf('\n];\n', start);
   const block = src.slice(start, end + 4);
 
-  assert.equal(block.length, 31104, 'tool schema byte length drifted from the frozen baseline');
+  assert.equal(block.length, 31152, 'tool schema byte length drifted from the frozen baseline');
   assert.equal(
     crypto.createHash('sha256').update(block).digest('hex'),
-    '3ace199727934e851902e4899c423d549d34d3f53469dcb56f07fc070d3f9d66',
+    'e62746a0873cafbe4248444f10909255794bee88ca54aa3c20031cc7ffd62dce',
     'the first-run missions must ride EXISTING tools: no schema edit, no cache bust',
   );
 

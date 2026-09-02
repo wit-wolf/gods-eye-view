@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildAreaNewsSearchQueries,
+  classifyAreaNewsTopic,
+  newsLocaleForPlace,
   normalizeRegionalArticles,
   normalizeRegionalPlace,
   normalizeRegionalWeather,
+  rankAndLimitAreaNews,
   regionalDistanceM,
   weatherCodeLabel,
 } from './regionalBrief.js';
@@ -60,4 +64,24 @@ test('regional distance handles nearby movement and missing positions', () => {
   );
   assert.ok(distance > 11000 && distance < 11200);
   assert.equal(regionalDistanceM(null, null), Infinity);
+});
+
+test('Area News ranking prefers retail then business', () => {
+  assert.equal(classifyAreaNewsTopic('New mall leasing in Cape Town'), 'retail');
+  assert.equal(classifyAreaNewsTopic('Property investment boom'), 'business');
+  assert.equal(classifyAreaNewsTopic('Weather update overnight'), 'other');
+  const ranked = rankAndLimitAreaNews([
+    { title: 'Weather update overnight', url: 'https://a.example/1', domain: 'a.example' },
+    { title: 'Company opens HQ', url: 'https://b.example/2', domain: 'b.example' },
+    { title: 'Shopping centre expands', url: 'https://c.example/3', domain: 'c.example' },
+  ], 3);
+  assert.equal(ranked[0].topic, 'retail');
+  assert.equal(ranked[1].topic, 'business');
+  assert.equal(ranked[2].topic, 'other');
+  const queries = buildAreaNewsSearchQueries({ locality: 'George', region: 'Western Cape', countryCode: 'ZA' });
+  assert.equal(queries.length, 2);
+  assert.equal(queries[0].topic, 'retail');
+  assert.equal(queries[1].topic, 'business');
+  assert.match(queries[0].query, /George/);
+  assert.deepEqual(newsLocaleForPlace({ countryCode: 'ZA' }), { hl: 'en-ZA', gl: 'ZA', ceid: 'ZA:en' });
 });

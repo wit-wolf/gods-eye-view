@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "name": "Census / ward / SAL polygons example",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_code": "EX-WARD-01",
+        "SAL_CODE": "EX-SAL-0001",
+        "ward_name": "EXAMPLE Ward (Hemingways area)",
+        "municipality": "EXAMPLE Municipality",
+        "example": true,
+        "source_note": "Census 2022 small-area is not public. Drop 2011 SAL/ward GeoJSON + SuperWEB2 CSV into public/sites/census-wards.geojson (gitignored). Never invent LSM or income."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [27.8990, -33.0160],
+            [27.9090, -33.0160],
+            [27.9090, -33.0070],
+            [27.8990, -33.0070],
+            [27.8990, -33.0160]
+          ]
+        ]
+      }
+    }
+  ]
+}

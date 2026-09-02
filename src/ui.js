@@ -13,6 +13,7 @@ import {
   decodeBloomIntensity,
 } from './bloom.js';
 import { LOCATIONS, CITY_POIS, GLOBE_VIEW, flyToGlobeView, flyToPresetLocation, flyToPOI, searchAndFlyTo } from './locations.js';
+import { autocompleteSearch } from './search/googlePlacesSearch.js';
 import { locationMiniStatus } from './locationStatus.js';
 import { interruptCameraMotion } from './cameraVerbs.js';
 import {
@@ -26,9 +27,13 @@ import {
   LayerStateCoordinator,
 } from './data/layerState.js';
 import { renderMapStackChips, syncMapStackChips } from './mapStackChips.js';
+import { DEFAULT_MAP_STACK_ID } from './mapStackController.js';
 import { OrbitController } from './orbit.js';
 import {
-  CelestialRing,
+  isProductFeatureEnabled,
+  PRODUCT_PROFILE,
+} from './productProfile.js';
+import {  CelestialRing,
   getKeyholeFadeTuning,
   isCelestialRingStyleSupported,
   setKeyholeFadeTuning,
@@ -159,6 +164,10 @@ import {
 import { sampleMeshFloorCells } from './data/meshFloorSampler.js';
 import { holdContinuousRender, releaseContinuousRender, governorRequestRender } from './renderGovernor.js';
 import {
+  isPerformanceFastPreset,
+  setPerformanceFastPreset,
+} from './sites/sitesPerformance.js';
+import {
   setScopeMaskEnabled,
   isScopeMaskEnabled,
   setScopeMaskFeather,
@@ -199,6 +208,15 @@ import {
 const TRANSITION_DURATION_MS = 500;
 /** Map of style name to its GLSL shader module for post-process stages. */
 const STYLES = { retro: retroShader, surveillance: nightVisionShader, thermal: thermalShader, anime: animeShader, noir: noirShader, snow: snowShader };
+
+/** Escape text interpolated into location-search suggestion markup. */
+function escapeHtmlLite(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 /** Versioned localStorage namespace prefix to invalidate stale panel layouts. */
 const PANEL_LAYOUT_STORAGE_VERSION = 'v6';
 const SHARE_PANEL_STATE_SPECS = Object.freeze([
@@ -2255,6 +2273,11 @@ export class StyleManager {
     this._scopeFeatherValue = document.getElementById('scope-feather-value');
     this._mapStackChips = document.getElementById('map-stack-chips');
     this._mapStackStatus = document.getElementById('map-stack-status');
+    this._google3dBtn = document.getElementById('google-3d-toggle');
+    this._perfFastBtn = document.getElementById('perf-fast-toggle');
+    this._performanceFast = false;
+    this._fastRestore = null;
+    this._lastNonPhotorealStackId = DEFAULT_MAP_STACK_ID;
     this._cleanViewBtn = document.getElementById('clean-view-toggle');
     this._cleanViewExitBtn = document.getElementById('clean-view-exit');
     this._dataPanel = document.getElementById('data-panel');
@@ -2368,6 +2391,10 @@ export class StyleManager {
     this._toast = document.getElementById('toast');
     this._locationSearch = document.getElementById('location-search');
     this._searchToggle = document.getElementById('search-toggle');
+    this._locationSearchSuggestions = document.getElementById('location-search-suggestions');
+    this._locationSearchAbort = null;
+    this._locationSearchDebounce = null;
+    this._locationSuggestionActive = -1;
     this._locationPills = document.getElementById('location-pills');
     this._poiRow = document.getElementById('poi-row');
     this._locationBarDivider = document.getElementById('location-bar-divider');
@@ -2542,9 +2569,9 @@ export class StyleManager {
           this.setCelestialRingEnabled(celestialRing, { syncShare: false, focus: false });
         }
         if (typeof scopeEnabled === 'boolean') {
-          setScopeMaskEnabled(scopeEnabled);
-          this._scopeBtn?.classList.toggle('active', scopeEnabled);
-          this._scopeBtn?.setAttribute('aria-pressed', String(scopeEnabled));
+          this._setScopeUiEnabled(scopeEnabled);
+        } else {
+          this._syncScopeControlsFromMask();
         }
         if (typeof scopeFeatherPct === 'number' && this._scopeFeatherSlider) {
           const pct = Math.max(0, Math.min(100, Math.round(scopeFeatherPct)));
@@ -2605,13 +2632,16 @@ export class StyleManager {
     initWorldOverlay(viewer);
 
     // Initialize detection overlay BEFORE style stages so the composite
-    // stage is first in the post-process pipeline
-    initDetection(viewer, [trafficLayer, flightsLayer, militaryFlightsLayer, satellitesLayer, cctvLayer, bikeshareLayer, aisLiveVesselsLayer], (modeLabel) => {
-      this._updateDetectionButton(modeLabel);
-    });
+    // stage is first in the post-process pipeline. Skipped on the Volee
+    // property profile — no aircraft/CCTV detection theatre.
+    if (isProductFeatureEnabled('detection')) {
+      initDetection(viewer, [trafficLayer, flightsLayer, militaryFlightsLayer, satellitesLayer, cctvLayer, bikeshareLayer, aisLiveVesselsLayer], (modeLabel) => {
+        this._updateDetectionButton(modeLabel);
+      });
+      setDetectionStyle(this.activeStyle);
+      this._applyDetectionDensityFromUi();
+    }
     initTrackedReadout(viewer);
-    setDetectionStyle(this.activeStyle);
-    this._applyDetectionDensityFromUi();
 
     this._initStages();
     this._initBloomSharpen();
@@ -3316,6 +3346,62 @@ export class StyleManager {
   }
 
   /**
+   * Enable/disable the circular scope mask and sync DISPLAY controls.
+   * @param {boolean} enabled
+   * @returns {void}
+   */
+  _setScopeUiEnabled(enabled) {
+    setScopeMaskEnabled(Boolean(enabled));
+    this._syncScopeControlsFromMask();
+  }
+
+  /** Mirror live scope-mask state onto the Scope toggle + feather row. */
+  _syncScopeControlsFromMask() {
+    const enabled = isScopeMaskEnabled();
+    this._scopeBtn?.classList.toggle('active', enabled);
+    this._scopeBtn?.setAttribute('aria-pressed', String(enabled));
+    document.getElementById('scope-slider-row')?.classList.toggle('visible', enabled);
+  }
+
+  /**
+   * When a Sites research brief opens, tuck DISPLAY so the card is readable;
+   * restore the prior DISPLAY collapsed state when the card closes.
+   * @returns {void}
+   */
+  _initSiteCardDisplayHandoff() {
+    this._siteCardDisplayRestore = null;
+    this._siteCardOpenHandler = (event) => {
+      const open = event?.detail?.open === true;
+      if (open) {
+        const wasCollapsed = this._ppToggles?.classList.contains('collapsed') ?? true;
+        this._siteCardDisplayRestore = { wasCollapsed };
+        if (!wasCollapsed) {
+          this.setPanelCollapsed('pp-toggles', true, {
+            explicit: false,
+            persist: false,
+            syncShare: false,
+          });
+        }
+        document.body.classList.add('site-card-open');
+        this._layoutRightPanels?.();
+        return;
+      }
+      document.body.classList.remove('site-card-open');
+      const restore = this._siteCardDisplayRestore;
+      this._siteCardDisplayRestore = null;
+      if (restore && restore.wasCollapsed === false) {
+        this.setPanelCollapsed('pp-toggles', false, {
+          explicit: false,
+          persist: false,
+          syncShare: false,
+        });
+      }
+      this._layoutRightPanels?.();
+    };
+    window.addEventListener('volee:site-card', this._siteCardOpenHandler);
+  }
+
+  /**
    * Wires up all primary UI event listeners: style buttons, keyboard shortcuts
    * (1-8 style keys, H/O/V/F/D/C hotkeys, Escape), AI prompt input with
    * debounce, bloom/sharpen/HUD toggles, detection density slider, and
@@ -3323,9 +3409,17 @@ export class StyleManager {
    * @returns {void}
    */
   _initUI() {
-    // Style buttons
+    // Style buttons — cut intel looks stay in the DOM for re-enable, but clicks
+    // on hidden buttons must not apply those shaders.
     document.querySelectorAll('.style-btn').forEach(btn => {
-      btn.addEventListener('click', () => this.setStyle(btn.dataset.style));
+      btn.addEventListener('click', () => {
+        const style = btn.dataset.style;
+        if (
+          !isProductFeatureEnabled('militaryVisualStyles')
+          && PRODUCT_PROFILE.cutVisualStyles.includes(style)
+        ) return;
+        this.setStyle(style);
+      });
     });
 
     // Keyboard shortcuts: 1-7, H, Escape
@@ -3343,7 +3437,14 @@ export class StyleManager {
         '4': 'thermal', '5': 'anime', '6': 'noir',
         '7': 'snow',
       };
-      if (keyMap[e.key]) this.setStyle(keyMap[e.key]);
+      if (keyMap[e.key]) {
+        const style = keyMap[e.key];
+        if (
+          !isProductFeatureEnabled('militaryVisualStyles')
+          && PRODUCT_PROFILE.cutVisualStyles.includes(style)
+        ) return;
+        this.setStyle(style);
+      }
       if (e.key === 'Escape') {
         if (this._locationSearch.classList.contains('expanded')) {
           this._locationSearch.classList.remove('expanded');
@@ -3363,12 +3464,14 @@ export class StyleManager {
         document.getElementById('data-panel').classList.toggle('active');
       }
       if (e.key.toLowerCase() === 'd') {
+        if (!isProductFeatureEnabled('detection')) return;
         this.shareLinkManager?.claimRestoreLane?.('visual');
         this._detectionUserOverridden = true;
         cycleDetectionMode();
         this._syncShareState();
       }
       if (e.key.toLowerCase() === 'c') {
+        if (!isProductFeatureEnabled('cctv')) return;
         this._toggleCctvEnabled();
       }
     };
@@ -3394,12 +3497,11 @@ export class StyleManager {
 
     // Scope mask — the explicit circular viewport treatment (owner ask:
     // standalone toggle + featherable edge; see src/scopeMask.js).
+    // Volo defaults scope OFF for clean property viewing.
+    this._syncScopeControlsFromMask();
     this._scopeBtn?.addEventListener('click', () => {
       this.shareLinkManager?.claimRestoreLane?.('visual');
-      const next = !isScopeMaskEnabled();
-      setScopeMaskEnabled(next);
-      this._scopeBtn.classList.toggle('active', next);
-      this._scopeBtn.setAttribute('aria-pressed', String(next));
+      this._setScopeUiEnabled(!isScopeMaskEnabled());
       this._syncShareState();
     });
     this._scopeFeatherSlider?.addEventListener('input', () => {
@@ -3409,6 +3511,7 @@ export class StyleManager {
       setScopeMaskFeather(pct / 100);
       this._syncShareState();
     });
+    this._initSiteCardDisplayHandoff();
 
     if (this._sharpenSlider) {
       this._sharpenSlider.addEventListener('input', () => {
@@ -3485,14 +3588,86 @@ export class StyleManager {
    * @returns {void}
    */
   _initMapStackControl() {
-    if (!this._mapStackChips || !this.mapStackController) return;
+    if (!this.mapStackController) return;
 
-    renderMapStackChips(this._mapStackChips, this.mapStackController.getStacks(), {
-      activeId: this.mapStackController.getActiveId(),
-      onSelect: (stackId) => { this._setMapStack(stackId); },
+    if (this._mapStackChips) {
+      renderMapStackChips(this._mapStackChips, this.mapStackController.getStacks(), {
+        activeId: this.mapStackController.getActiveId(),
+        onSelect: (stackId) => { this._setMapStack(stackId); },
+      });
+    }
+
+    this._google3dBtn?.addEventListener('click', () => {
+      const active = this.mapStackController.getActiveId();
+      if (active === 'photoreal') {
+        void this._setMapStack(this._lastNonPhotorealStackId || DEFAULT_MAP_STACK_ID);
+        return;
+      }
+      this._lastNonPhotorealStackId = active || DEFAULT_MAP_STACK_ID;
+      void this._setMapStack('photoreal');
     });
 
+    this._perfFastBtn?.addEventListener('click', () => {
+      this.shareLinkManager?.claimRestoreLane?.('visual');
+      this._setPerformanceFast(!this._performanceFast);
+    });
+    this._syncPerformanceFastUi();
+
     this._renderMapStackState(this.mapStackController.getState());
+  }
+
+  /**
+   * DISPLAY Fast preset — cuts GPU/post cost and asks Sites for stronger
+   * clustering + gentler DEMO paint. Does not remove Sites features.
+   * @param {boolean} enabled
+   * @returns {void}
+   */
+  _setPerformanceFast(enabled) {
+    const next = Boolean(enabled);
+    if (next === this._performanceFast) {
+      this._syncPerformanceFastUi();
+      return;
+    }
+    if (next) {
+      this._fastRestore = {
+        bloom: this.bloomEnabled,
+        bloomIntensity: this._getBloomIntensity?.() ?? 0,
+        sharpen: this.sharpenEnabled,
+        targetFrameRate: this.viewer?.targetFrameRate || 60,
+      };
+      this._setBloomEnabled(false);
+      this._setSharpenEnabled(false);
+      if (this.mapStackController?.getActiveId() === 'photoreal') {
+        void this._setMapStack(this._lastNonPhotorealStackId || DEFAULT_MAP_STACK_ID, { syncShare: false });
+      }
+      if (this.viewer) this.viewer.targetFrameRate = 30;
+      setPerformanceFastPreset(true);
+    } else {
+      setPerformanceFastPreset(false);
+      if (this.viewer) {
+        this.viewer.targetFrameRate = this._fastRestore?.targetFrameRate || 60;
+      }
+      if (this._fastRestore) {
+        if (typeof this._fastRestore.bloomIntensity === 'number' && this._bloomSlider) {
+          this._setBloomIntensity(clampBloomIntensity(this._fastRestore.bloomIntensity), { syncShare: false });
+        }
+        this._setBloomEnabled(Boolean(this._fastRestore.bloom));
+        this._setSharpenEnabled(Boolean(this._fastRestore.sharpen));
+      }
+      this._fastRestore = null;
+    }
+    this._performanceFast = next;
+    this._syncPerformanceFastUi();
+    governorRequestRender('perf-fast');
+    this._syncShareState?.();
+  }
+
+  /** Sync Fast toggle button to the Sites performance flag. */
+  _syncPerformanceFastUi() {
+    const on = this._performanceFast || isPerformanceFastPreset();
+    this._performanceFast = on;
+    this._perfFastBtn?.classList.toggle('active', on);
+    this._perfFastBtn?.setAttribute('aria-pressed', String(on));
   }
 
   /**
@@ -3517,15 +3692,26 @@ export class StyleManager {
   }
 
   /**
-   * Syncs the map stack chip row and status chip with controller state. The
-   * lit chip always follows `state.activeId`, never the click — a rejected or
-   * superseded switch therefore leaves the genuinely active stack lit.
+   * Syncs the map stack chip row, DISPLAY 3D-tiles toggle, and status chip.
    * @param {object} state - Map stack controller state.
    * @returns {void}
    */
   _renderMapStackState(state) {
     if (!state) return;
     syncMapStackChips(this._mapStackChips, state.activeId);
+    if (state.activeId && state.activeId !== 'photoreal') {
+      this._lastNonPhotorealStackId = state.activeId;
+    }
+    const photorealOn = state.activeId === 'photoreal';
+    const photorealAvailable = this.mapStackController?.isStackAvailable?.('photoreal') !== false;
+    this._google3dBtn?.classList.toggle('active', photorealOn);
+    this._google3dBtn?.setAttribute('aria-pressed', String(photorealOn));
+    if (this._google3dBtn) {
+      this._google3dBtn.disabled = !photorealAvailable && !photorealOn;
+      this._google3dBtn.title = photorealAvailable
+        ? 'Google Photorealistic 3D Tiles — 3D buildings (off by default for performance)'
+        : 'Google 3D tiles unavailable';
+    }
     if (this._mapStackStatus) {
       const stack = state.activeStack;
       const label = state.status === 'switching'
@@ -3834,7 +4020,7 @@ export class StyleManager {
       scopeTerminusPct: getScopeTerminusOverride() == null
         ? null
         : Math.round(getScopeTerminusOverride() * 100),
-      mapStack: this.mapStackController?.getActiveId?.() || 'photoreal',
+      mapStack: this.mapStackController?.getActiveId?.() || DEFAULT_MAP_STACK_ID,
     });
   }
 
@@ -5285,6 +5471,7 @@ export class StyleManager {
 
   /** Wire the independent Radio companion controls. */
   _initRadioPanel() {
+    if (!isProductFeatureEnabled('radio')) return;
     if (!this._radioPanel) return;
     this._radioTunerAbort?.abort();
     this._radioTunerAbort = new AbortController();
@@ -6109,6 +6296,7 @@ export class StyleManager {
    * @returns {void}
    */
   _initCctvPanel() {
+    if (!isProductFeatureEnabled('cctv')) return;
     if (!this._cctvPanel) return;
 
     this._cctvEnableBtn?.addEventListener('click', async () => {
@@ -8609,7 +8797,7 @@ export class StyleManager {
         enabled: isScopeMaskEnabled(),
         featherPct: Math.round(getScopeMaskFeather() * 100),
       },
-      mapStack: this.mapStackController?.getActiveId?.() || 'photoreal',
+      mapStack: this.mapStackController?.getActiveId?.() || DEFAULT_MAP_STACK_ID,
       styleParams,
     };
   }
@@ -8672,9 +8860,7 @@ export class StyleManager {
 
     const scopeState = state.scope || {};
     if (typeof scopeState.enabled === 'boolean') {
-      setScopeMaskEnabled(scopeState.enabled);
-      this._scopeBtn?.classList.toggle('active', scopeState.enabled);
-      this._scopeBtn?.setAttribute('aria-pressed', String(scopeState.enabled));
+      this._setScopeUiEnabled(scopeState.enabled);
     }
     if (typeof scopeState.featherPct === 'number' && this._scopeFeatherSlider) {
       const pct = Math.max(0, Math.min(100, Math.round(scopeState.featherPct)));
@@ -9280,55 +9466,189 @@ export class StyleManager {
       this._locationSearch.classList.toggle('expanded');
       if (this._locationSearch.classList.contains('expanded')) {
         this._locationSearch.focus();
+      } else {
+        this._clearLocationSuggestions();
       }
     });
 
-    // Search submit on Enter
-    this._locationSearch.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
-        const query = this._locationSearch.value.trim();
-        if (!query) return;
-        const generation = this._beginDeferredNavigation('location');
-        if (generation === false) {
-          this._locationSearch.classList.remove('searching');
-          this._locationSearch.blur();
-          return;
-        }
-        this._activeLocationSearchGeneration = generation;
-        this._locationSearch.classList.add('searching');
-        try {
-          const destination = await searchAndFlyTo(this.viewer, query, {
-            beforeFly: () => this._reassertNavigationHandoff(generation),
-          });
-          if (this._disposed || generation !== this._navigationGeneration) return;
-          if (destination?.cancelled) {
-            // Authority changed while the lookup was resolving; remain inert.
-          } else if (destination) {
-            // The ACTIVE STYLE indicator reports the STYLE and nothing else.
-            // Writing the searched city here made the top-right corner read
-            // "ACTIVE STYLE / TOKYO"; where the camera is belongs to the
-            // LOCATION panel's own readout, which is updated below.
-            //
-            // Set before _setActiveLocation(null) so its own mini-status
-            // refresh already sees the destination — the readout never blinks
-            // through "Location: --" on the way to the searched place.
-            this._searchedLocationLabel = destination.label || query;
-            this._setActiveLocation(null);
-            this._currentPoi = null;
-            this._collapsePOIRow();
-            this._updateLocationMiniStatus();
-          } else {
-            this._showToast('Location not found');
-          }
-        } catch (err) {
-          console.error('[Search] Geocoding failed:', err);
-          if (this._disposed || generation !== this._navigationGeneration) return;
-          this._showToast('Search failed');
-        } finally {
-          this._settleLocationSearchUi(generation);
-        }
-      }
+    if (PRODUCT_PROFILE.search?.placeholder && this._locationSearch) {
+      this._locationSearch.placeholder = PRODUCT_PROFILE.search.placeholder;
+    }
+
+    this._locationSearch?.addEventListener('input', () => {
+      this._scheduleLocationAutocomplete();
     });
+    this._locationSearch?.addEventListener('blur', () => {
+      // Delay so a mousedown on a suggestion still registers as a click.
+      window.setTimeout(() => this._clearLocationSuggestions(), 150);
+    });
+
+    // Search submit on Enter (or pick highlighted suggestion)
+    this._locationSearch.addEventListener('keydown', async (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const moved = this._moveLocationSuggestion(e.key === 'ArrowDown' ? 1 : -1);
+        if (moved) e.preventDefault();
+        return;
+      }
+      if (e.key === 'Escape') {
+        this._clearLocationSuggestions();
+        return;
+      }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const query = this._locationSearch.value.trim();
+      if (!query) return;
+      const suggestion = this._selectedLocationSuggestion();
+      await this._runLocationSearch(query, suggestion?.placeId || null);
+    });
+  }
+
+  /**
+   * Debounced Places Autocomplete (New) for the location bar — ZA-restricted.
+   * @returns {void}
+   */
+  _scheduleLocationAutocomplete() {
+    clearTimeout(this._locationSearchDebounce);
+    const query = this._locationSearch?.value?.trim() || '';
+    if (query.length < 2) {
+      this._clearLocationSuggestions();
+      return;
+    }
+    this._locationSearchDebounce = setTimeout(() => {
+      void this._fetchLocationSuggestions(query);
+    }, 220);
+  }
+
+  /** @param {string} query */
+  async _fetchLocationSuggestions(query) {
+    this._locationSearchAbort?.abort();
+    const controller = new AbortController();
+    this._locationSearchAbort = controller;
+    try {
+      const suggestions = await autocompleteSearch(query, { signal: controller.signal });
+      if (controller.signal.aborted || this._disposed) return;
+      this._renderLocationSuggestions(suggestions);
+    } catch (error) {
+      if (controller.signal.aborted || this._disposed) return;
+      this._clearLocationSuggestions();
+      if (error?.keyMissing || error?.code === 'KEY_MISSING') {
+        this._showToast(error.message || 'GOOGLE_MAPS_API_KEY is not set');
+      } else if (error?.code === 'REQUEST_DENIED' || /denied|blocked|API key/i.test(error?.message || '')) {
+        this._showToast(error.message || 'Google Places request denied');
+      }
+    }
+  }
+
+  /** @param {Array<{placeId:string,label:string,mainText:string,secondaryText:string}>} suggestions */
+  _renderLocationSuggestions(suggestions) {
+    const list = this._locationSearchSuggestions;
+    if (!list) return;
+    list.innerHTML = '';
+    this._locationSuggestionActive = -1;
+    if (!suggestions.length) {
+      list.hidden = true;
+      this._locationSearch?.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    for (const [index, suggestion] of suggestions.entries()) {
+      const item = document.createElement('li');
+      item.className = 'location-search-suggestion';
+      item.id = `location-search-suggestion-${index}`;
+      item.setAttribute('role', 'option');
+      item.dataset.placeId = suggestion.placeId;
+      item.dataset.label = suggestion.label;
+      item.innerHTML = `<strong>${escapeHtmlLite(suggestion.mainText)}</strong>`
+        + (suggestion.secondaryText
+          ? `<small>${escapeHtmlLite(suggestion.secondaryText)}</small>`
+          : '');
+      item.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        void this._runLocationSearch(suggestion.label, suggestion.placeId);
+      });
+      list.appendChild(item);
+    }
+    list.hidden = false;
+    this._locationSearch?.setAttribute('aria-expanded', 'true');
+  }
+
+  _clearLocationSuggestions() {
+    clearTimeout(this._locationSearchDebounce);
+    this._locationSearchAbort?.abort();
+    this._locationSearchAbort = null;
+    this._locationSuggestionActive = -1;
+    if (this._locationSearchSuggestions) {
+      this._locationSearchSuggestions.innerHTML = '';
+      this._locationSearchSuggestions.hidden = true;
+    }
+    this._locationSearch?.setAttribute('aria-expanded', 'false');
+    this._locationSearch?.removeAttribute('aria-activedescendant');
+  }
+
+  /** @param {number} delta */
+  _moveLocationSuggestion(delta) {
+    const items = [...(this._locationSearchSuggestions?.querySelectorAll('[role="option"]') || [])];
+    if (!items.length) return false;
+    const next = Math.max(0, Math.min(items.length - 1, this._locationSuggestionActive + delta));
+    this._locationSuggestionActive = next;
+    items.forEach((el, index) => el.classList.toggle('active', index === next));
+    const active = items[next];
+    if (active) {
+      this._locationSearch?.setAttribute('aria-activedescendant', active.id);
+      this._locationSearch.value = active.dataset.label || this._locationSearch.value;
+    }
+    return true;
+  }
+
+  _selectedLocationSuggestion() {
+    const items = [...(this._locationSearchSuggestions?.querySelectorAll('[role="option"]') || [])];
+    const active = items[this._locationSuggestionActive];
+    if (!active) return null;
+    return { placeId: active.dataset.placeId, label: active.dataset.label };
+  }
+
+  /**
+   * Geocode (or Place Details) + fly. Shared by Enter and suggestion clicks.
+   * @param {string} query
+   * @param {string|null} placeId
+   */
+  async _runLocationSearch(query, placeId = null) {
+    this._clearLocationSuggestions();
+    const generation = this._beginDeferredNavigation('location');
+    if (generation === false) {
+      this._locationSearch.classList.remove('searching');
+      this._locationSearch.blur();
+      return;
+    }
+    this._activeLocationSearchGeneration = generation;
+    this._locationSearch.classList.add('searching');
+    try {
+      const destination = await searchAndFlyTo(this.viewer, query, {
+        placeId: placeId || undefined,
+        beforeFly: () => this._reassertNavigationHandoff(generation),
+      });
+      if (this._disposed || generation !== this._navigationGeneration) return;
+      if (destination?.cancelled) {
+        // Authority changed while the lookup was resolving; remain inert.
+      } else if (destination) {
+        this._searchedLocationLabel = destination.label || query;
+        this._setActiveLocation(null);
+        this._currentPoi = null;
+        this._collapsePOIRow();
+        this._updateLocationMiniStatus();
+      } else {
+        this._showToast('No South African place found');
+      }
+    } catch (err) {
+      console.error('[Search] Geocoding failed:', err);
+      if (this._disposed || generation !== this._navigationGeneration) return;
+      if (err?.keyMissing || err?.code === 'KEY_MISSING') {
+        this._showToast(err.message || 'GOOGLE_MAPS_API_KEY is not set');
+      } else {
+        this._showToast(err?.message || 'Search failed');
+      }
+    } finally {
+      this._settleLocationSearchUi(generation);
+    }
   }
 
   /**
@@ -9695,6 +10015,10 @@ export class StyleManager {
     interruptCameraMotion('reset-globe');
     this._stopOrbit();
     this.cockpitView?.exit({ restoreTracking: false });
+    // Standard / reset view: property globe without the scope mask, and without
+    // Google 3D tiles (opt-in for performance).
+    this._setScopeUiEnabled(false);
+    void this._setMapStack(DEFAULT_MAP_STACK_ID);
     try {
       militaryAwarenessLayer.releaseCameraOwnership?.({ origin: 'tool' });
     } catch {
@@ -9817,6 +10141,7 @@ export class StyleManager {
   }
 
   _initModels3dToggle() {
+    if (!isProductFeatureEnabled('models3d')) return;
     if (!this._models3dBtn) return;
     // The Proximity/All mode row is revealed only while 3D is on (mirrors the DETECT slider row).
     const syncModeRow = () => {
@@ -9883,7 +10208,8 @@ export class StyleManager {
     this._updateHudButtonState();
 
     // Detection toggle button
-    this._detectionBtn.addEventListener('click', () => {
+    this._detectionBtn?.addEventListener('click', () => {
+      if (!isProductFeatureEnabled('detection')) return;
       this.shareLinkManager?.claimRestoreLane?.('visual');
       this._detectionUserOverridden = true;
       cycleDetectionMode();
@@ -10189,6 +10515,12 @@ export class StyleManager {
       this._resetGlobeBtn?.removeEventListener('click', this._globeResetHandler);
       this._cockpitResetGlobeBtn?.removeEventListener('click', this._globeResetHandler);
       this._globeResetHandler = null;
+    }
+    if (this._siteCardOpenHandler) {
+      window.removeEventListener('volee:site-card', this._siteCardOpenHandler);
+      this._siteCardOpenHandler = null;
+      this._siteCardDisplayRestore = null;
+      document.body.classList.remove('site-card-open');
     }
     if (this._clearSelectedLayersBtn && this._clearSelectedLayersHandler) {
       this._clearSelectedLayersBtn.removeEventListener('click', this._clearSelectedLayersHandler);
