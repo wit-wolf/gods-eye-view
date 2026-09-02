@@ -1,7 +1,7 @@
 /**
- * Ancora centres layer — static GeoJSON from public/sites/ancora-centres.geojson.
- * Distinct from Sites KMZ pins. EXAMPLE features are tagged example:true.
- * Occupancy / GLA / mandate shown only when present — never invented.
+ * Ancora centres layer — prefers local public/sites/ancora-centres.geojson
+ * (gitignored live PropertyCentral dump). Falls back to committed
+ * ancora-centres.example.geojson. Occupancy from unit counts only — never invent tenants.
  */
 import * as Cesium from 'cesium';
 import { governorRequestRender } from '../renderGovernor.js';
