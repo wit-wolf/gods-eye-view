@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "name": "Census / ward polygons example",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_code": "EX-WARD-01",
+        "ward_name": "EXAMPLE Ward (Hemingways area)",
+        "municipality": "EXAMPLE Municipality",
+        "example": true,
+        "source_note": "Copy Stats SA / municipal ward polygons into public/sites/census-wards.geojson. Never invent LSM or income."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [27.8990, -33.0160],
+            [27.9090, -33.0160],
+            [27.9090, -33.0070],
+            [27.8990, -33.0070],
+            [27.8990, -33.0160]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "type": "FeatureCollection",
+  "name": "Ancora centres",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "ancora-example-hemingways",
+      "properties": {
+        "name": "Hemingways Shopping Centre",
+        "locality": "East London",
+        "region": "Eastern Cape",
+        "country": "South Africa",
+        "mandate": null,
+        "gla_sqm": null,
+        "occupancy_pct": null,
+        "example": true,
+        "source_note": "EXAMPLE — placeholder geometry only. Not live PropertyCentral / Ancora occupancy."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [27.9036, -33.0117]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ancora-example-wijnland",
+      "properties": {
+        "name": "Wijnland Junction",
+        "locality": "Stellenbosch",
+        "region": "Western Cape",
+        "country": "South Africa",
+        "mandate": null,
+        "gla_sqm": null,
+        "occupancy_pct": null,
+        "example": true,
+        "source_note": "EXAMPLE — placeholder geometry only. Not live PropertyCentral / Ancora occupancy."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [18.8602, -33.9321]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ancora-example-outeniqua",
+      "properties": {
+        "name": "Outeniqua Lifestyle Centre",
+        "locality": "George",
+        "region": "Western Cape",
+        "country": "South Africa",
+        "mandate": null,
+        "gla_sqm": null,
+        "occupancy_pct": null,
+        "example": true,
+        "source_note": "EXAMPLE — placeholder geometry only. Not live PropertyCentral / Ancora occupancy."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [22.4584, -33.9775]
+      }
+    }
+  ]
+}

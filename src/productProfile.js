@@ -31,7 +31,7 @@ export const PRODUCT_BRANDING = Object.freeze({
   firstRunKicker: 'VOLO · BY VOLEE',
   firstRunDescription:
     'Photoreal sites, weather, and fires on one globe—for property work, not a spy console.',
-  firstRunTip: 'Tip: open Data Layers for Sites, traffic, and FIRMS fires.',
+  firstRunTip: 'Tip: open Data Layers for Sites, Ancora centres, traffic, and FIRMS fires.',
   /** Property viewing starts without the circular scope mask. */
   scopeEnabledByDefault: false,
 });
@@ -44,6 +44,7 @@ export const PRODUCT_BRANDING = Object.freeze({
  */
 export const VOLEE_ENABLED_LAYER_IDS = Object.freeze([
   'sites',
+  'ancora',
   'area-news',
   'traffic',
   'local-firms',

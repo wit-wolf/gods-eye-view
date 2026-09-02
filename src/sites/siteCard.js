@@ -26,6 +26,8 @@ import {
   loadSiteCompetitors,
   loadSiteLocality,
 } from './siteResearch.js';
+import { loadSiteZoning } from './siteZoning.js';
+import { loadSiteDemographics } from './siteDemographics.js';
 
 const PANEL_ID = 'site-card-panel';
 
@@ -263,6 +265,90 @@ function paintCompetitors(mount, competitors) {
   `;
 }
 
+function formatMaybe(value, suffix = '') {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return `${value}${suffix}`;
+  }
+  const s = String(value).trim();
+  return s ? `${s}${suffix}` : null;
+}
+
+function paintAncoraCentre(mount, properties) {
+  if (!mount) return;
+  const body = mount.querySelector('[data-site-ancora-body]') || mount;
+  const props = properties && typeof properties === 'object' ? properties : {};
+  const example = props.example === true || props.example === 'true';
+  const rows = [];
+  const locality = formatMaybe(props.locality || props.city);
+  const region = formatMaybe(props.region || props.province);
+  const mandate = formatMaybe(props.mandate);
+  const gla = formatMaybe(props.gla_sqm ?? props.gla ?? props.GLA, ' m²');
+  const occ = formatMaybe(props.occupancy_pct ?? props.occupancy ?? props.Occupancy, '%');
+  if (locality) rows.push(['Locality (record)', locality]);
+  if (region) rows.push(['Region', region]);
+  if (mandate) rows.push(['Mandate', mandate]);
+  if (gla) rows.push(['GLA', gla]);
+  if (occ) rows.push(['Occupancy', occ]);
+
+  const missing = [];
+  if (!mandate) missing.push('mandate');
+  if (!gla) missing.push('GLA');
+  if (!occ) missing.push('occupancy');
+
+  body.innerHTML = `
+    ${example
+    ? `<p class="site-card-example-banner">EXAMPLE centre — not live Ancora / PropertyCentral occupancy.</p>`
+    : ''}
+    ${rows.length
+    ? `<dl class="site-card-identity">${rows.map(([k, v]) => `
+        <div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>
+      `).join('')}</dl>`
+    : `<p class="site-card-muted">No centre fields on this feature.</p>`}
+    ${missing.length
+    ? `<p class="site-card-muted">No data for ${escapeHtml(missing.join(', '))} — not invented. Wire live Ancora rows into <code>public/sites/ancora-centres.geojson</code>.</p>`
+    : ''}
+    ${props.source_note
+    ? `<p class="site-card-muted">${escapeHtml(String(props.source_note))}</p>`
+    : ''}
+  `;
+}
+
+function paintZoning(mount, zoning) {
+  if (!mount) return;
+  const body = mount.querySelector('[data-site-zoning-body]') || mount;
+  if (!zoning || zoning.status !== 'ok') {
+    body.innerHTML = `<p class="site-card-muted">${escapeHtml(zoning?.message || 'No zoning layer loaded')}</p>`;
+    return;
+  }
+  body.innerHTML = `
+    ${zoning.example ? `<p class="site-card-example-banner">EXAMPLE zoning polygon</p>` : ''}
+    <dl class="site-card-identity">
+      ${zoning.zoneName ? `<div><dt>Zone</dt><dd>${escapeHtml(zoning.zoneName)}</dd></div>` : ''}
+      ${zoning.zoneCode ? `<div><dt>Code</dt><dd>${escapeHtml(zoning.zoneCode)}</dd></div>` : ''}
+    </dl>
+    <p class="site-card-muted">${escapeHtml(zoning.message || 'Matched local zoning GeoJSON.')}</p>
+  `;
+}
+
+function paintDemographics(mount, demo) {
+  if (!mount) return;
+  const body = mount.querySelector('[data-site-demographics-body]') || mount;
+  if (!demo || demo.status !== 'ok') {
+    body.innerHTML = `<p class="site-card-muted">${escapeHtml(demo?.message || 'Stats SA not wired — drop a ward/census GeoJSON to enable')}</p>`;
+    return;
+  }
+  body.innerHTML = `
+    ${demo.example ? `<p class="site-card-example-banner">EXAMPLE census / ward polygon</p>` : ''}
+    <dl class="site-card-identity">
+      ${demo.wardName ? `<div><dt>Ward</dt><dd>${escapeHtml(demo.wardName)}</dd></div>` : ''}
+      ${demo.wardCode ? `<div><dt>Code</dt><dd>${escapeHtml(demo.wardCode)}</dd></div>` : ''}
+      ${demo.municipality ? `<div><dt>Municipality</dt><dd>${escapeHtml(demo.municipality)}</dd></div>` : ''}
+    </dl>
+    <p class="site-card-muted">${escapeHtml(demo.message || 'Matched ward GeoJSON. No LSM or income invented.')}</p>
+  `;
+}
+
 /**
  * Open / refresh the research brief for a feature.
  * @param {object} options
@@ -274,6 +360,12 @@ function paintCompetitors(mount, competitors) {
  * @param {string} [options.layerName]
  * @param {Array<{uid:string,name?:string,latitude?:number,longitude?:number}>} [options.sites]
  * @param {string} [options.liveLayersNote]
+ * @param {'sites'|'ancora'} [options.mode='sites']
+ * @param {boolean} [options.showDelete=true]
+ * @param {boolean} [options.showNearbyImported=true]
+ * @param {boolean} [options.showAccess=true]
+ * @param {boolean} [options.showCompetitors=true]
+ * @param {boolean} [options.allowRename=true]
  */
 export function openSiteCard({
   uid,
@@ -284,6 +376,12 @@ export function openSiteCard({
   layerName = '',
   sites = [],
   liveLayersNote = '',
+  mode = 'sites',
+  showDelete = mode !== 'ancora',
+  showNearbyImported = mode !== 'ancora',
+  showAccess = true,
+  showCompetitors = true,
+  allowRename = mode !== 'ancora',
 } = {}) {
   if (!uid || typeof document === 'undefined') return;
   cancelAccessLoad();
@@ -292,6 +390,7 @@ export function openSiteCard({
   _currentProps = properties;
   const panel = ensurePanel();
   const meta = ensureSiteMetadata(uid, name);
+  const isAncora = mode === 'ancora';
   _openFocus = Number.isFinite(latitude) && Number.isFinite(longitude)
     ? {
       latitude,
@@ -300,43 +399,52 @@ export function openSiteCard({
       uid,
     }
     : null;
-  const displayName = meta.site_name || name || properties._name || 'Untitled site';
+  const displayName = meta.site_name || name || properties._name || (isAncora ? 'Ancora centre' : 'Untitled site');
   const folder = folderFromProperties(properties, layerName);
   const description = descriptionFromProperties(properties);
   const attrs = kmlAttributeRows(properties);
   const coords = formatCoordinates(latitude, longitude);
 
-  const nearby2km = findNearbySites({
-    focusUid: uid,
-    latitude,
-    longitude,
-    sites,
-    radiusM: 2000,
-    limit: 24,
-  });
-  const nearby5km = findNearbySites({
-    focusUid: uid,
-    latitude,
-    longitude,
-    sites,
-    radiusM: 5000,
-    limit: 200,
-  });
+  const nearby2km = showNearbyImported
+    ? findNearbySites({
+      focusUid: uid,
+      latitude,
+      longitude,
+      sites,
+      radiusM: 2000,
+      limit: 24,
+    })
+    : [];
+  const nearby5km = showNearbyImported
+    ? findNearbySites({
+      focusUid: uid,
+      latitude,
+      longitude,
+      sites,
+      radiusM: 5000,
+      limit: 200,
+    })
+    : [];
 
   panel.hidden = false;
   document.body?.classList.add('site-card-open');
   emitSiteCardOpenChange(true);
+  panel.dataset.cardMode = isAncora ? 'ancora' : 'sites';
   panel.innerHTML = `
     <div class="site-card-header">
-      <div class="site-card-kicker">SITES · RESEARCH BRIEF</div>
+      <div class="site-card-kicker">${isAncora ? 'ANCORA · CENTRE BRIEF' : 'SITES · RESEARCH BRIEF'}</div>
       <button type="button" class="site-card-close" data-site-close title="Close" aria-label="Close site card">×</button>
     </div>
     <h2 class="site-card-title" data-site-title>${escapeHtml(displayName)}</h2>
 
+    ${allowRename ? `
     <label class="site-card-field">
       <span>Name</span>
       <input type="text" data-site-name value="${escapeHtml(displayName)}" placeholder="Site name…" maxlength="160" />
     </label>
+    ` : `
+    <p class="site-card-muted" style="margin:0 0 0.7rem">Name from Ancora GeoJSON (read-only).</p>
+    `}
 
     <section class="site-card-section">
       <div class="site-card-section-title">Identity</div>
@@ -346,11 +454,19 @@ export function openSiteCard({
       </dl>
     </section>
 
+    ${isAncora ? `
+    <section class="site-card-section" data-site-ancora>
+      <div class="site-card-section-title">Centre record</div>
+      <div data-site-ancora-body></div>
+    </section>
+    ` : ''}
+
     <section class="site-card-section" data-site-locality>
       <div class="site-card-section-title">Locality</div>
       <p class="site-card-muted" data-site-locality-body>Resolving reverse geocode…</p>
     </section>
 
+    ${!isAncora ? `
     <section class="site-card-section">
       <div class="site-card-section-title">From the KMZ</div>
       ${description
@@ -367,7 +483,9 @@ export function openSiteCard({
         </details>
       ` : `<p class="site-card-muted">No ExtendedData / extra attributes on this placemark.</p>`}
     </section>
+    ` : ''}
 
+    ${showNearbyImported ? `
     <section class="site-card-section">
       <div class="site-card-section-title">Nearby imported pins</div>
       <p class="site-card-muted">Counted from Sites pins already on this globe — not a commercial catchment model.</p>
@@ -376,15 +494,30 @@ export function openSiteCard({
     ? `<p class="site-card-live">${escapeHtml(liveLayersNote)}</p>`
     : ''}
     </section>
+    ` : ''}
 
+    ${showAccess ? `
     <section class="site-card-section site-card-access" data-site-access>
       <div class="site-card-section-title">Access / traffic</div>
       ${renderAccessLoadingHtml()}
     </section>
+    ` : ''}
 
+    ${showCompetitors ? `
     <section class="site-card-section" data-site-competitors>
       <div class="site-card-section-title">Competitors nearby</div>
       <p class="site-card-muted" data-site-competitors-body>Searching retail anchors (TomTom Places)…</p>
+    </section>
+    ` : ''}
+
+    <section class="site-card-section" data-site-zoning>
+      <div class="site-card-section-title">Zoning / SDF</div>
+      <p class="site-card-muted" data-site-zoning-body>Checking local zoning GeoJSON…</p>
+    </section>
+
+    <section class="site-card-section" data-site-demographics>
+      <div class="site-card-section-title">Census / demographics</div>
+      <p class="site-card-muted" data-site-demographics-body>Checking ward / census GeoJSON…</p>
     </section>
 
     <label class="site-card-field">
@@ -392,38 +525,42 @@ export function openSiteCard({
       <textarea data-site-notes rows="3" placeholder="Analyst notepad…">${escapeHtml(meta.notes || '')}</textarea>
     </label>
 
+    ${!isAncora ? `
     <section class="site-card-section site-card-research">
       <div class="site-card-section-title">Research · not wired yet</div>
       <ul class="site-card-stubs">
         <li>
-          <strong>Demographics / household income / LSM</strong>
-          <span>Not wired yet — no invented Stats SA numbers.</span>
-        </li>
-        <li>
-          <strong>Zoning / SDF</strong>
-          <span>GeoJSON overlay / intersection — not wired yet (no national SA zoning API).</span>
-        </li>
-        <li>
           <strong>PropertyCentral occupancy</strong>
-          <span>Not wired yet.</span>
+          <span>Not wired yet — use the Ancora layer for centre GeoJSON when available. No invented occupancy.</span>
         </li>
       </ul>
-      <p class="site-card-muted">No demographics, footfall, or composite scores are invented here.</p>
+      <p class="site-card-muted">No LSM, footfall, or composite scores are invented here.</p>
     </section>
+    ` : `
+    <p class="site-card-muted">No LSM, footfall, or composite scores are invented here.</p>
+    `}
 
     <section class="site-card-section site-card-actions">
-      <p class="site-card-muted">Research = this brief (click a pin). Load KMZ/KML via <strong>IMPORT</strong> or drop a file on the globe. <strong>RESET</strong> clears all Sites — use Delete pin for one.</p>
+      <p class="site-card-muted">${isAncora
+    ? 'Ancora centres load from <code>public/sites/ancora-centres.geojson</code>. Sites KMZ: enable Sites → <strong>IMPORT</strong> (cached after first load).'
+    : 'Research = this brief (click a pin). Load KMZ/KML via <strong>IMPORT</strong> (faster after first load — cached) or drop a file on the globe. <strong>RESET</strong> clears all Sites — use Delete pin for one.'}</p>
+      ${showDelete ? `
       <button type="button" class="site-card-delete" data-site-delete title="Remove this pin only (Delete key)">
         Delete pin
       </button>
+      ` : ''}
     </section>
   `;
 
   panel.querySelector('[data-site-close]')?.addEventListener('click', () => closeSiteCard());
-  panel.querySelector('[data-site-delete]')?.addEventListener('click', () => {
-    requestDeletePin(uid, displayName);
-  });
-  installDeleteKeyHandler(uid, displayName);
+  if (showDelete) {
+    panel.querySelector('[data-site-delete]')?.addEventListener('click', () => {
+      requestDeletePin(uid, displayName);
+    });
+    installDeleteKeyHandler(uid, displayName);
+  } else {
+    uninstallDeleteKeyHandler();
+  }
   panel.querySelector('[data-site-notes]')?.addEventListener('change', (event) => {
     const nameInput = panel.querySelector('[data-site-name]');
     upsertSiteMetadata(uid, {
@@ -431,14 +568,20 @@ export function openSiteCard({
       notes: event.target.value,
     });
   });
-  panel.querySelector('[data-site-name]')?.addEventListener('change', (event) => {
-    const nextName = String(event.target.value || '').trim() || 'Untitled site';
-    upsertSiteMetadata(uid, { site_name: nextName });
-    const title = panel.querySelector('[data-site-title]');
-    if (title) title.textContent = nextName;
-    if (_openFocus?.uid === uid) _openFocus = { ..._openFocus, name: nextName };
-    try { _onSiteNameChange?.(uid, nextName); } catch { /* ignore */ }
-  });
+  if (allowRename) {
+    panel.querySelector('[data-site-name]')?.addEventListener('change', (event) => {
+      const nextName = String(event.target.value || '').trim() || 'Untitled site';
+      upsertSiteMetadata(uid, { site_name: nextName });
+      const title = panel.querySelector('[data-site-title]');
+      if (title) title.textContent = nextName;
+      if (_openFocus?.uid === uid) _openFocus = { ..._openFocus, name: nextName };
+      try { _onSiteNameChange?.(uid, nextName); } catch { /* ignore */ }
+    });
+  }
+
+  if (isAncora) {
+    paintAncoraCentre(panel.querySelector('[data-site-ancora]'), properties);
+  }
 
   const accessMount = panel.querySelector('[data-site-access]');
   if (accessMount && Number.isFinite(latitude) && Number.isFinite(longitude)) {
@@ -489,40 +632,59 @@ export function openSiteCard({
 
   const localityMount = panel.querySelector('[data-site-locality]');
   const competitorsMount = panel.querySelector('[data-site-competitors]');
+  const zoningMount = panel.querySelector('[data-site-zoning]');
+  const demographicsMount = panel.querySelector('[data-site-demographics]');
   if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
     const controller = new AbortController();
     _researchAbort = controller;
-    Promise.all([
+    const tasks = [
       loadSiteLocality(latitude, longitude, { signal: controller.signal }),
-      loadSiteCompetitors(latitude, longitude, { signal: controller.signal }),
-    ]).then(([locality, competitors]) => {
+      showCompetitors
+        ? loadSiteCompetitors(latitude, longitude, { signal: controller.signal })
+        : Promise.resolve(null),
+      loadSiteZoning(latitude, longitude, { signal: controller.signal }),
+      loadSiteDemographics(latitude, longitude, { signal: controller.signal }),
+    ];
+    Promise.all(tasks).then(([locality, competitors, zoning, demographics]) => {
       if (_currentUid !== uid || controller.signal.aborted) return;
       paintLocality(localityMount, locality);
-      paintCompetitors(competitorsMount, competitors);
+      if (competitorsMount && competitors) paintCompetitors(competitorsMount, competitors);
+      paintZoning(zoningMount, zoning);
+      paintDemographics(demographicsMount, demographics);
       // Soft-fill name for untouched "Dropped pin" defaults.
-      const nameInput = panel.querySelector('[data-site-name]');
-      const current = String(nameInput?.value || '').trim();
-      if (
-        locality?.status === 'ok'
-        && locality.label
-        && (!current || current === 'Dropped pin' || current === 'Untitled site')
-      ) {
-        if (nameInput) nameInput.value = locality.locality || locality.label;
-        const title = panel.querySelector('[data-site-title]');
-        const nextName = locality.locality || locality.label;
-        if (title) title.textContent = nextName;
-        upsertSiteMetadata(uid, { site_name: nextName });
-        if (_openFocus?.uid === uid) _openFocus = { ..._openFocus, name: nextName };
-        try { _onSiteNameChange?.(uid, nextName); } catch { /* ignore */ }
+      if (allowRename) {
+        const nameInput = panel.querySelector('[data-site-name]');
+        const current = String(nameInput?.value || '').trim();
+        if (
+          locality?.status === 'ok'
+          && locality.label
+          && (!current || current === 'Dropped pin' || current === 'Untitled site')
+        ) {
+          if (nameInput) nameInput.value = locality.locality || locality.label;
+          const title = panel.querySelector('[data-site-title]');
+          const nextName = locality.locality || locality.label;
+          if (title) title.textContent = nextName;
+          upsertSiteMetadata(uid, { site_name: nextName });
+          if (_openFocus?.uid === uid) _openFocus = { ..._openFocus, name: nextName };
+          try { _onSiteNameChange?.(uid, nextName); } catch { /* ignore */ }
+        }
       }
     }).catch((err) => {
       if (err?.name === 'AbortError' || _currentUid !== uid) return;
       paintLocality(localityMount, { status: 'unavailable', message: 'Locality lookup failed.' });
-      paintCompetitors(competitorsMount, { status: 'unavailable', message: 'Competitor search failed.' });
+      if (competitorsMount) {
+        paintCompetitors(competitorsMount, { status: 'unavailable', message: 'Competitor search failed.' });
+      }
+      paintZoning(zoningMount, { status: 'unavailable', message: 'Zoning lookup failed.' });
+      paintDemographics(demographicsMount, { status: 'unavailable', message: 'Census lookup failed.' });
     });
   } else {
     paintLocality(localityMount, { status: 'unavailable', message: 'Pin has no coordinates.' });
-    paintCompetitors(competitorsMount, { status: 'unavailable', message: 'Pin has no coordinates.' });
+    if (competitorsMount) {
+      paintCompetitors(competitorsMount, { status: 'unavailable', message: 'Pin has no coordinates.' });
+    }
+    paintZoning(zoningMount, { status: 'unavailable', message: 'Pin has no coordinates.' });
+    paintDemographics(demographicsMount, { status: 'unavailable', message: 'Pin has no coordinates.' });
   }
 }
 
@@ -571,5 +733,7 @@ export function siteStatusAccent() {
 
 /** Single Sites pin colour (not a pipeline legend). */
 export const SITES_PIN_COLOR = '#3dd6c6';
+/** Ancora centres accent (matches ancoraLayer). */
+export const ANCORA_CARD_ACCENT = '#e8a54b';
 
 export { stripHtmlToText };

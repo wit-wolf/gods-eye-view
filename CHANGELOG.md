@@ -7,17 +7,28 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Added
 
+- **Ancora** Data Layers entry (amber centres, separate from Sites KMZ): loads
+  `public/sites/ancora-centres.geojson` with three clearly tagged EXAMPLE
+  centres (Hemingways, Wijnland Junction, Outeniqua Lifestyle Centre). Research
+  brief shows name / locality / GLA / occupancy / mandate only when present —
+  never invented. Empty or missing file → honest empty/unavailable.
+- Optional **zoning** and **census/ward** GeoJSON joins on Sites and Ancora
+  research cards (`public/sites/zoning.geojson`, `census-wards.geojson`, plus
+  `.example` templates). Hit → real properties only; miss/empty → honest copy.
+  No invented LSM, income, or municipal codes. No AfriGIS required.
 - Sites **PIN** (drop-pin) mode: toggle place mode, click empty globe to create a
   persistent “Dropped pins” Sites point, open the research brief, Esc/CANCEL to
   exit. Reverse-geocode locality prefers **TomTom Search** (`/api/tomtom/reverse-geocode`,
   server `TOMTOM_API_KEY`); Nominatim via regional brief is the labeled fallback.
   Competitor retail ring prefers **TomTom Places nearby** (`/api/tomtom/nearby-poi`,
   shopping/market/shop/department categories) with Google Places Nearby as
-  fallback when the Maps key allows. Demographics / zoning / PropertyCentral
-  stay stubbed. Evaluation search quota shares `TOMTOM_DAILY_ROUTE_BUDGET` with
-  drive-time — over limit degrades honestly (stale cache or fallback / message).
+  fallback when the Maps key allows. Demographics / zoning use optional local
+  GeoJSON joins (above); PropertyCentral stays stubbed on Sites. Evaluation
+  search quota shares `TOMTOM_DAILY_ROUTE_BUDGET` with drive-time — over limit
+  degrades honestly (stale cache or fallback / message).
   Research brief includes **Delete pin** (confirm) to remove one entity from the
   globe and IndexedDB layer without RESET; Delete key when the card is open.
+  IMPORT chip tip: faster after first load (IndexedDB cache).
 - **Area News** Data Layers toggle (off by default): Sites-style widget with
   retail-then-business headlines for the focused camera area (selected Sites
   pin when open). Reuses `/api/regional-brief?mode=area-news` (Nominatim +

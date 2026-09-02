@@ -17,7 +17,7 @@ export const COMPETITOR_LAYER_STUB = Object.freeze({
     'Checkers',
     'Builders Warehouse',
   ]),
-  note: 'Retail scrapers deferred — research card uses TomTom Places (Google fallback) for live anchors.',
+  note: 'Retail scrapers deferred — Ancora GeoJSON + TomTom Places (Google fallback) for live anchors.',
 });
 
 export function getCompetitorLayerStub() {

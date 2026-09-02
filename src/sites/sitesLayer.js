@@ -1352,7 +1352,7 @@ const sitesLayer = {
       {
         id: 'sites-import',
         label: 'IMPORT',
-        title: 'Import KMZ / KML / GeoJSON (background parse)',
+        title: 'IMPORT your .kmz / .kml / GeoJSON (faster after first load — cached in IndexedDB)',
         active: false,
         disabled: false,
         params: { sitesAction: 'import' },

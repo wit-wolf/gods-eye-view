@@ -9487,10 +9487,27 @@ body.sites-place-mode canvas {
   line-height: 1.35;
 }
 
-.site-card-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+.site-card-example-banner {
+  margin: 0 0 0.45rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(232, 165, 75, 0.55);
+  background: rgba(232, 165, 75, 0.12);
+  color: #f0d5a8;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.site-card-panel[data-card-mode="ancora"] {
+  border-color: rgba(232, 165, 75, 0.45);
+}
+
+.site-card-panel[data-card-mode="ancora"] .site-card-kicker {
+  color: rgba(232, 165, 75, 0.95);
+}
+
+.site-card-panel code {
+  font-size: 0.65rem;
+  color: #b8d4ce;
 }
 
 .site-card-actions .site-card-muted strong {

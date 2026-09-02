@@ -225,10 +225,11 @@ Property Genius was a local-first SA retail site-screening prototype (MapLibre +
 | **Locality + competitors** on the research brief | **Ported** — TomTom reverse-geocode + Places Search via `/api/tomtom` (same server key / non-tile budget as drive-time). Nominatim / Google Places are labeled fallbacks. Keyless/budget = honest unavailable or fallback. |
 | **Area News** (retail then business headlines for focused camera / site) | **Ported** — Data Layers toggle (off by default); Sites-style widget; `/api/regional-brief?mode=area-news`. Empty/unavailable stay honest. |
 | November Google Earth Pins demo | **Bundled** — enable **Sites**, then click **DEMO**. First paint is a Cape Town preview; the full gzipped set streams afterward. |
-| Zoning GeoJSON overlay + intersection | **Deferred** — stub on the research card (“not wired yet”) |
-| Demographics / household income / LSM | **Deferred** — stub on the research card; no invented Stats SA numbers |
+| **Ancora centres** | **Ported** — Data Layers → **Ancora**. Loads `public/sites/ancora-centres.geojson` (amber pins). Ships 3 EXAMPLE centres (`example: true`) until live Ancora rows arrive. Research brief shows name / locality / GLA / occupancy / mandate only when present — never invented. |
+| Zoning GeoJSON overlay + intersection | **Ported (optional)** — drop municipal SDF at `public/sites/zoning.geojson`. Pin join shows zone name/code; empty/missing → “No zoning layer loaded”. See `.example` file. |
+| Demographics / household income / LSM | **Honest join only** — optional `public/sites/census-wards.geojson` for ward/municipality identifiers. **No invented LSM or income.** Empty → “Stats SA not wired…”. |
 | SA retail competitor scrapers (Cashbuild, Woolworths, PnP, …) | **Deferred** as scrapers — **live TomTom Places** (Google Nearby fallback) covers retail anchors without scrapers |
-| PropertyCentral occupancy | **Deferred** — stub on the research card |
+| PropertyCentral occupancy | **Deferred** on Sites card — use **Ancora** GeoJSON fields when provided; no invented occupancy |
 | Azure SQL persistence | **Deferred** — this PR stays local-first |
 
 **Missing a layer you want?** Open an issue — or add it and send the PR.

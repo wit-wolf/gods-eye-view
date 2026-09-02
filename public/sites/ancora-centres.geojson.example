@@ -1,0 +1,25 @@
+{
+  "type": "FeatureCollection",
+  "name": "Ancora centres (example template)",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "ancora-example-hemingways",
+      "properties": {
+        "name": "Hemingways Shopping Centre",
+        "locality": "East London",
+        "region": "Eastern Cape",
+        "country": "South Africa",
+        "mandate": "EXAMPLE mandate string when known",
+        "gla_sqm": null,
+        "occupancy_pct": null,
+        "example": true,
+        "source_note": "Copy to ancora-centres.geojson and replace with live Ancora rows. Never invent occupancy_pct / gla_sqm."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [27.9036, -33.0117]
+      }
+    }
+  ]
+}
