@@ -8,10 +8,12 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 ### Added
 
 - **Ancora** Data Layers entry (amber centres, separate from Sites KMZ): loads
-  `public/sites/ancora-centres.geojson` with three clearly tagged EXAMPLE
-  centres (Hemingways, Wijnland Junction, Outeniqua Lifestyle Centre). Research
-  brief shows name / locality / GLA / occupancy / mandate only when present —
-  never invented. Empty or missing file → honest empty/unavailable.
+  local `public/sites/ancora-centres.geojson` when present — **gitignored** so
+  live PropertyCentral occupancy never ships to GitHub. Committed template
+  `ancora-centres.example.geojson` (EXAMPLE centres). Research brief shows GLA,
+  units occupied/vacant, mandate_status, geocoded name/address with a
+  “geocoded (not surveyed)” note; occupancy % from unit counts only. Lists
+  known Places Text Search collisions from the 2026-09-02 dump.
 - Optional **zoning** and **census/ward** GeoJSON joins on Sites and Ancora
   research cards (`public/sites/zoning.geojson`, `census-wards.geojson`, plus
   `.example` templates). Hit → real properties only; miss/empty → honest copy.

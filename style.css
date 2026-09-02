@@ -9487,14 +9487,22 @@ body.sites-place-mode canvas {
   line-height: 1.35;
 }
 
-.site-card-example-banner {
+.site-card-geocode-note {
   margin: 0 0 0.45rem;
   padding: 0.35rem 0.5rem;
-  border: 1px solid rgba(232, 165, 75, 0.55);
-  background: rgba(232, 165, 75, 0.12);
-  color: #f0d5a8;
+  border: 1px solid rgba(159, 183, 178, 0.35);
+  background: rgba(20, 40, 48, 0.55);
+  color: #b8cfc8;
   font-size: 0.68rem;
-  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+
+.site-card-caveat-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: #8ea8a2;
 }
 
 .site-card-panel[data-card-mode="ancora"] {

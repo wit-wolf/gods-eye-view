@@ -28,6 +28,11 @@ import {
 } from './siteResearch.js';
 import { loadSiteZoning } from './siteZoning.js';
 import { loadSiteDemographics } from './siteDemographics.js';
+import {
+  ANCORA_GEOCODE_CAVEATS,
+  ancoraOccupancyFromUnits,
+  ancoraWasGeocoded,
+} from './ancoraCentreFields.js';
 
 const PANEL_ID = 'site-card-panel';
 
@@ -279,26 +284,46 @@ function paintAncoraCentre(mount, properties) {
   const body = mount.querySelector('[data-site-ancora-body]') || mount;
   const props = properties && typeof properties === 'object' ? properties : {};
   const example = props.example === true || props.example === 'true';
+  const recordName = formatMaybe(props.name || props.Name);
+  const geocodedName = formatMaybe(props.geocoded_name || props.geocodedName);
+  const geocodedAddress = formatMaybe(props.geocoded_address || props.geocodedAddress);
+  const geocoded = ancoraWasGeocoded(props);
+  const occupancy = ancoraOccupancyFromUnits(props);
+
   const rows = [];
+  if (recordName) rows.push(['Name (record)', recordName]);
+  if (geocodedName) rows.push(['Geocoded name', geocodedName]);
+  if (geocodedAddress) rows.push(['Geocoded address', geocodedAddress]);
   const locality = formatMaybe(props.locality || props.city);
   const region = formatMaybe(props.region || props.province);
-  const mandate = formatMaybe(props.mandate);
+  const mandate = formatMaybe(props.mandate_status || props.mandate || props.Mandate);
   const gla = formatMaybe(props.gla_sqm ?? props.gla ?? props.GLA, ' m²');
-  const occ = formatMaybe(props.occupancy_pct ?? props.occupancy ?? props.Occupancy, '%');
-  if (locality) rows.push(['Locality (record)', locality]);
+  if (locality) rows.push(['Locality', locality]);
   if (region) rows.push(['Region', region]);
-  if (mandate) rows.push(['Mandate', mandate]);
+  if (mandate) rows.push(['Mandate status', mandate]);
   if (gla) rows.push(['GLA', gla]);
-  if (occ) rows.push(['Occupancy', occ]);
+  if (occupancy.units != null) rows.push(['Units', String(occupancy.units)]);
+  if (occupancy.occupied != null) rows.push(['Units occupied', String(occupancy.occupied)]);
+  if (occupancy.vacant != null) rows.push(['Units vacant', String(occupancy.vacant)]);
+  if (occupancy.occupancyPct != null) {
+    rows.push(['Occupancy', `${occupancy.occupancyPct}% (from unit counts)`]);
+  }
 
   const missing = [];
-  if (!mandate) missing.push('mandate');
+  if (!mandate) missing.push('mandate_status');
   if (!gla) missing.push('GLA');
-  if (!occ) missing.push('occupancy');
+  if (occupancy.units == null) missing.push('units');
+  if (occupancy.occupancyPct == null) missing.push('occupancy');
+
+  const nameMismatch = recordName && geocodedName
+    && recordName.toLocaleLowerCase() !== geocodedName.toLocaleLowerCase();
 
   body.innerHTML = `
     ${example
     ? `<p class="site-card-example-banner">EXAMPLE centre — not live Ancora / PropertyCentral occupancy.</p>`
+    : ''}
+    ${geocoded
+    ? `<p class="site-card-geocode-note">Geocoded (not surveyed) — Google Places Text Search (ZA/ZW). Coordinates are Places matches, not on-site surveys.${nameMismatch ? ' Record name and geocoded name differ — verify on site.' : ''}</p>`
     : ''}
     ${rows.length
     ? `<dl class="site-card-identity">${rows.map(([k, v]) => `
@@ -306,8 +331,16 @@ function paintAncoraCentre(mount, properties) {
       `).join('')}</dl>`
     : `<p class="site-card-muted">No centre fields on this feature.</p>`}
     ${missing.length
-    ? `<p class="site-card-muted">No data for ${escapeHtml(missing.join(', '))} — not invented. Wire live Ancora rows into <code>public/sites/ancora-centres.geojson</code>.</p>`
+    ? `<p class="site-card-muted">No data for ${escapeHtml(missing.join(', '))} — not invented. Occupancy uses public.units counts only when present.</p>`
     : ''}
+    ${!example ? `
+    <details class="site-card-attrs">
+      <summary>Geocode caveats (2026-09-02 dump)</summary>
+      <ul class="site-card-caveat-list">
+        ${ANCORA_GEOCODE_CAVEATS.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}
+      </ul>
+    </details>
+    ` : ''}
     ${props.source_note
     ? `<p class="site-card-muted">${escapeHtml(String(props.source_note))}</p>`
     : ''}
@@ -542,7 +575,7 @@ export function openSiteCard({
 
     <section class="site-card-section site-card-actions">
       <p class="site-card-muted">${isAncora
-    ? 'Ancora centres load from <code>public/sites/ancora-centres.geojson</code>. Sites KMZ: enable Sites → <strong>IMPORT</strong> (cached after first load).'
+    ? 'Live Ancora dump goes in <code>public/sites/ancora-centres.geojson</code> (gitignored). Example template: <code>ancora-centres.example.geojson</code>. Sites KMZ: enable Sites → <strong>IMPORT</strong> (cached after first load).'
     : 'Research = this brief (click a pin). Load KMZ/KML via <strong>IMPORT</strong> (faster after first load — cached) or drop a file on the globe. <strong>RESET</strong> clears all Sites — use Delete pin for one.'}</p>
       ${showDelete ? `
       <button type="button" class="site-card-delete" data-site-delete title="Remove this pin only (Delete key)">

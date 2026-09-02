@@ -13,7 +13,10 @@ import {
 import { openSiteCard, closeSiteCard } from './siteCard.js';
 
 export const ANCORA_LAYER_ID = 'ancora';
+/** Live PropertyCentral dump — local only (gitignored). */
 export const ANCORA_GEOJSON_URL = '/sites/ancora-centres.geojson';
+/** Committed EXAMPLE template for contributors without the live dump. */
+export const ANCORA_EXAMPLE_GEOJSON_URL = '/sites/ancora-centres.example.geojson';
 /** Amber / copper — distinct from Sites teal (#3dd6c6). */
 export const ANCORA_PIN_COLOR = '#e8a54b';
 
@@ -27,6 +30,8 @@ let _lastUpdate = null;
 let _error = null;
 let _status = 'idle';
 let _loading = false;
+/** @type {'live'|'example'|null} */
+let _dataOrigin = null;
 /** @type {Map<string, {entity:object, props:object, name:string, latitude:number|null, longitude:number|null}>} */
 let _featureByUid = new Map();
 
@@ -125,41 +130,54 @@ function addCentreEntity(feature, index) {
   return entity;
 }
 
+/**
+ * @param {string} url
+ * @returns {Promise<{ok:boolean, status:number, data:object|null, error?:string}>}
+ */
+async function fetchGeoJson(url) {
+  let res;
+  try {
+    res = await fetch(url, { cache: 'no-cache' });
+  } catch (err) {
+    return { ok: false, status: 0, data: null, error: err?.message || 'fetch failed' };
+  }
+  if (res.status === 404) return { ok: false, status: 404, data: null };
+  if (!res.ok) return { ok: false, status: res.status, data: null, error: `HTTP ${res.status}` };
+  try {
+    const data = await res.json();
+    return { ok: true, status: res.status, data };
+  } catch {
+    return { ok: false, status: res.status, data: null, error: 'Invalid GeoJSON' };
+  }
+}
+
 async function loadCentres() {
   if (!_viewer || _destroyed) return;
   setStatus('loading');
+  _dataOrigin = null;
   clearEntities();
   ensureDataSource();
   _dataSource.show = _enabled;
 
-  let res;
-  try {
-    res = await fetch(ANCORA_GEOJSON_URL, { cache: 'no-cache' });
-  } catch (err) {
-    setStatus('unavailable', err?.message || 'fetch failed');
+  // Prefer live dump (local, gitignored). Fall back to committed EXAMPLE template.
+  let origin = 'live';
+  let result = await fetchGeoJson(ANCORA_GEOJSON_URL);
+  if (!result.ok && result.status === 404) {
+    origin = 'example';
+    result = await fetchGeoJson(ANCORA_EXAMPLE_GEOJSON_URL);
+  }
+
+  if (!result.ok) {
+    if (result.status === 404) {
+      setStatus('empty');
+      _error = null;
+      return;
+    }
+    setStatus('unavailable', result.error || 'Ancora GeoJSON unavailable');
     return;
   }
 
-  if (res.status === 404) {
-    setStatus('empty', null);
-    _error = null;
-    _status = 'empty';
-    return;
-  }
-  if (!res.ok) {
-    setStatus('unavailable', `HTTP ${res.status}`);
-    return;
-  }
-
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    setStatus('unavailable', 'Invalid GeoJSON');
-    return;
-  }
-
-  const features = Array.isArray(data?.features) ? data.features : [];
+  const features = Array.isArray(result.data?.features) ? result.data.features : [];
   if (!features.length) {
     setStatus('empty');
     return;
@@ -170,6 +188,7 @@ async function loadCentres() {
   }
   _count = _featureByUid.size;
   _lastUpdate = Date.now();
+  _dataOrigin = origin;
   setStatus(_count ? 'nominal' : 'empty');
   governorRequestRender('ancora:load');
 }
@@ -234,6 +253,11 @@ const ancoraLayer = {
   async update() {},
 
   getStats() {
+    const originNote = _dataOrigin === 'example'
+      ? 'Ancora · EXAMPLE template (drop live dump at ancora-centres.geojson)'
+      : _dataOrigin === 'live'
+        ? 'Ancora centres · local GeoJSON (not committed)'
+        : 'Ancora centres · local GeoJSON';
     return {
       count: _count,
       lastUpdate: _lastUpdate,
@@ -241,10 +265,10 @@ const ancoraLayer = {
       loading: _loading,
       status: _status,
       source: _status === 'empty'
-        ? 'Ancora · no centres in GeoJSON'
+        ? 'Ancora · no centres — add public/sites/ancora-centres.geojson (gitignored)'
         : _status === 'unavailable'
           ? `Ancora · ${_error || 'unavailable'}`
-          : 'Ancora centres · local GeoJSON',
+          : originNote,
     };
   },
 
