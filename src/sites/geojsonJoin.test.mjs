@@ -51,3 +51,22 @@ describe('pointInRing / featureContainsPoint', () => {
     _resetGeoJsonCollectionCache();
   });
 });
+
+describe('loadGeoJsonCollection SPA fallback', () => {
+  it('treats text/html 200 as missing', async () => {
+    const { loadGeoJsonCollection, _resetGeoJsonCollectionCache } = await import('./geojsonJoin.js');
+    _resetGeoJsonCollectionCache();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response('<!DOCTYPE html>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    });
+    try {
+      const out = await loadGeoJsonCollection('/sites/zoning.geojson', { force: true });
+      assert.equal(out.status, 'missing');
+    } finally {
+      globalThis.fetch = originalFetch;
+      _resetGeoJsonCollectionCache();
+    }
+  });
+});

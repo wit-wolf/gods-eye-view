@@ -128,6 +128,20 @@ export async function loadGeoJsonCollection(url, { signal, force = false } = {})
     return out;
   }
 
+  // Vite preview / SPA hosts often return index.html (200 text/html) for missing
+  // public files — treat that as missing so zoning can fall through to George.
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('text/html')) {
+    const out = {
+      status: 'missing',
+      features: [],
+      message: 'No GeoJSON file at this path.',
+      url: key,
+    };
+    _cache.set(key, { at: Date.now(), ...out });
+    return out;
+  }
+
   let data;
   try {
     data = await res.json();
@@ -136,6 +150,17 @@ export async function loadGeoJsonCollection(url, { signal, force = false } = {})
       status: 'error',
       features: [],
       message: 'GeoJSON could not be parsed.',
+      url: key,
+    };
+    _cache.set(key, { at: Date.now(), ...out });
+    return out;
+  }
+
+  if (!data || data.type !== 'FeatureCollection') {
+    const out = {
+      status: 'missing',
+      features: [],
+      message: 'No GeoJSON FeatureCollection at this path.',
       url: key,
     };
     _cache.set(key, { at: Date.now(), ...out });

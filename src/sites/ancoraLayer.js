@@ -143,8 +143,16 @@ async function fetchGeoJson(url) {
   }
   if (res.status === 404) return { ok: false, status: 404, data: null };
   if (!res.ok) return { ok: false, status: res.status, data: null, error: `HTTP ${res.status}` };
+  // SPA hosts may return index.html for a missing gitignored live dump.
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('text/html')) {
+    return { ok: false, status: 404, data: null };
+  }
   try {
     const data = await res.json();
+    if (!data || data.type !== 'FeatureCollection') {
+      return { ok: false, status: 404, data: null };
+    }
     return { ok: true, status: res.status, data };
   } catch {
     return { ok: false, status: res.status, data: null, error: 'Invalid GeoJSON' };
