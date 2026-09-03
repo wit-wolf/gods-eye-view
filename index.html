@@ -538,8 +538,8 @@
       </div>
       <section class="map-source-section" aria-labelledby="map-source-label">
         <div class="map-source-heading">
-          <span id="map-source-label">MAP SOURCE</span>
-          <span id="map-stack-status" class="pp-stack-status" aria-live="polite">OSM</span>
+          <span id="map-source-label">MAP STYLE</span>
+          <span id="map-stack-status" class="pp-stack-status" aria-live="polite">Satellite</span>
         </div>
         <div id="map-stack-chips" class="map-stack-chip-row" role="group" aria-label="Map source"></div>
       </section>
@@ -583,6 +583,20 @@
   </div>
 
   <div id="left-panel-stack">
+  <!-- Map style (basemap / 3D tiles) -->
+  <div id="map-style-panel" class="panel-collapsible collapsed active" data-panel-id="map-style-panel">
+    <div class="panel-glow"></div>
+    <div class="map-style-panel-inner">
+      <div class="panel-header">
+        <span class="panel-title">MAP STYLE</span>
+        <span class="panel-divider"></span>
+        <button class="panel-collapse-btn" data-collapse-target="map-style-panel" title="Collapse panel">+</button>
+      </div>
+      <div id="map-style-options" class="map-style-option-list" role="group" aria-label="Map style"></div>
+      <div id="map-style-status" class="map-style-status" aria-live="polite">Satellite</div>
+    </div>
+  </div>
+
   <!-- Data Layer Toggle Panel -->
   <div id="data-panel" class="panel-collapsible collapsed active" data-panel-id="data-panel">
     <div class="panel-glow"></div>
@@ -848,19 +862,16 @@
       <span class="first-run-kicker">VOLO · BY VOLEE</span>
     </header>
     <h2 id="first-run-title">Choose your first view</h2>
-    <p id="first-run-description">Photoreal sites, weather, and fires on one globe—for property work, not a spy console.</p>
+    <p id="first-run-description">Sites, Ancora centres, traffic, and Area News on one globe—for property work, not a spy console.</p>
     <div class="first-run-choices">
       <button type="button" data-first-run-choice="sites">
         <span class="material-symbols-outlined" aria-hidden="true">location_on</span>
         <span><strong>SITES</strong><small>Import KMZ pins or load the November demo</small></span>
         <span class="material-symbols-outlined first-run-arrow" aria-hidden="true">arrow_forward</span>
       </button>
-      <button type="button" data-first-run-choice="environmental">
+      <button type="button" data-first-run-choice="environmental" hidden aria-hidden="true" class="product-surface-cut">
         <span class="material-symbols-outlined" aria-hidden="true">local_fire_department</span>
-        <!-- Title text is painted from ENVIRONMENTAL_LABEL_CHOICE at init. -->
-        <!-- Subcopy names BOTH feeds this tile turns on, because the launcher
-             optimizes for the fully configured experience (product decision,
-             2026-08-23) — see the mission table in src/firstRunExperience.js. -->
+        <!-- Kept in markup for re-enable; cut from Volo property surface (quakes/FIRMS off). -->
         <span><strong data-first-run-environmental-title>ENVIRONMENTAL</strong><small>Live earthquakes and active fires, from USGS and NASA</small></span>
         <span class="material-symbols-outlined first-run-arrow" aria-hidden="true">arrow_forward</span>
       </button>
@@ -879,7 +890,7 @@
     </div>
     <!-- Kept out of the footer row: it swaps to mission progress and errors, and
          a live region that also holds layout makes the row jump as it speaks. -->
-    <p class="first-run-note" data-first-run-status role="status" aria-live="polite">Tip: open Data Layers for Sites, traffic, and FIRMS fires.</p>
+    <p class="first-run-note" data-first-run-status role="status" aria-live="polite">Tip: open Data Layers for Sites, Ancora centres, traffic, and Area News. Use Map style for Satellite / Streets.</p>
   </aside>
 
   <!-- Intelligence HUD Overlay -->

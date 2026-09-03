@@ -3,6 +3,25 @@
 This changelog records public product changes. For the authoritative description
 of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md).
 
+## [Unreleased] — 2026-09-03
+
+### Changed
+
+- **Property Data Layers only:** cut Earthquakes, FIRMS / Active fires, Dams,
+  submarine cables, and local datacenters from `VOLEE_ENABLED_LAYER_IDS` so they
+  no longer appear in Data Layers or start feeds. Kept: Sites, Ancora, Area
+  News, Street Traffic. Existing OSINT cut (aircraft/ships/sats/CCTV/voice/radio)
+  unchanged.
+- **Scenes** panel / Scene Director tray hidden on the Volo product surface
+  (`features.scenes: false`). Sites **IMPORT** (KMZ) remains.
+- First-run copy no longer mentions fires; Environmental mission tile stays in
+  markup but is hidden.
+- **Map style** widget (left rail): Satellite (Google 2D Map Tiles via existing
+  `GOOGLE_MAPS_API_KEY`), Streets (OSM), Satellite + labels (Google hybrid),
+  3D buildings (Photorealistic tiles, off by default), Bing Aerial/Labels when
+  `CESIUM_ION_TOKEN` is present (honest unavailable otherwise). Cold start
+  prefers Google Satellite 2D, else Streets — never 3D by default.
+
 ## [Unreleased] — 2026-09-02
 
 ### Changed

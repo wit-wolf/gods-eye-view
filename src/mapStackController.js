@@ -1,41 +1,81 @@
 import * as Cesium from 'cesium';
 import { governorRequestRender } from './renderGovernor.js';
 
+/**
+ * Basemap / globe stacks for Volo.
+ *
+ * Google 2D Map Tiles (satellite / hybrid) use the existing GOOGLE_MAPS_API_KEY
+ * via Cesium.Google2DImageryProvider — no Cesium ion token required.
+ * Bing stacks still need CESIUM_ION_TOKEN and stay honestly unavailable without it.
+ * Photoreal 3D tiles stay opt-in (heavy); cold start prefers Satellite 2D.
+ */
 export const MAP_STACKS = [
   {
+    id: 'google-satellite',
+    label: 'Satellite',
+    shortLabel: 'Satellite',
+    description: 'Google 2D satellite (Map Tiles API)',
+    kind: 'google2d',
+    mapType: 'satellite',
+    requiresIon: false,
+    requiresGoogle: true,
+  },
+  {
+    id: 'osm',
+    label: 'Streets',
+    shortLabel: 'Streets',
+    description: 'OpenStreetMap road map',
+    kind: 'osm',
+    requiresIon: false,
+    requiresGoogle: false,
+  },
+  {
+    id: 'google-hybrid',
+    label: 'Satellite + labels',
+    shortLabel: 'Hybrid',
+    description: 'Google satellite with road labels',
+    kind: 'google2d',
+    mapType: 'satellite',
+    // Baked hybrid (not a transparent overlay): satellite + roadmap labels.
+    layerTypes: Object.freeze(['layerRoadmap']),
+    overlay: false,
+    requiresIon: false,
+    requiresGoogle: true,
+  },
+  {
     id: 'photoreal',
-    label: 'Google 3D tiles',
+    label: '3D buildings',
     shortLabel: '3D',
+    description: 'Google Photorealistic 3D Tiles (heavy)',
     kind: 'photoreal',
     requiresIon: false,
+    requiresGoogle: true,
   },
   {
     id: 'bing-aerial',
     label: 'Bing Aerial',
-    shortLabel: 'Aerial',
+    shortLabel: 'Bing',
+    description: 'Bing aerial imagery via Cesium ion',
     kind: 'ion',
     style: Cesium.IonWorldImageryStyle.AERIAL,
     requiresIon: true,
+    requiresGoogle: false,
   },
   {
     id: 'bing-labels',
     label: 'Bing Labels',
-    shortLabel: 'Labels',
+    shortLabel: 'Bing+',
+    description: 'Bing aerial with labels via Cesium ion',
     kind: 'ion',
     style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS,
     requiresIon: true,
-  },
-  {
-    id: 'osm',
-    label: 'OSM',
-    shortLabel: 'OSM',
-    kind: 'osm',
-    requiresIon: false,
+    requiresGoogle: false,
   },
 ];
 
-/** Cold-start / standard-view map source — imagery globe, not Google 3D tiles. */
-export const DEFAULT_MAP_STACK_ID = 'osm';
+/** Cold-start map source — Google 2D satellite when the Maps key works; else Streets. */
+export const DEFAULT_MAP_STACK_ID = 'google-satellite';
+export const FALLBACK_MAP_STACK_ID = 'osm';
 
 const DEFAULT_OSM_CREDIT = '© OpenStreetMap contributors';
 
@@ -49,12 +89,13 @@ const REEARTH_TERRAIN_URL = 'https://terrain.reearth.land/cesium-mesh/ellipsoid'
 
 /**
  * Controls the active globe/map stack. Google Photorealistic 3D Tiles are an
- * opt-in DISPLAY toggle (performance); OSM / Bing imagery are the default.
+ * opt-in DISPLAY toggle (performance); Google 2D satellite is the property default.
  */
 export class MapStackController {
   constructor(viewer, {
     googleTileset = null,
     cesiumToken = '',
+    googleApiKey = '',
     initialStack = DEFAULT_MAP_STACK_ID,
     onChange = null,
     onError = null,
@@ -62,9 +103,12 @@ export class MapStackController {
     this.viewer = viewer;
     this.googleTileset = googleTileset;
     this.cesiumToken = String(cesiumToken || '').trim();
+    this.googleApiKey = String(googleApiKey || '').trim()
+      || String(globalThis?.window?.__GOOGLE_MAPS_API_KEY__ || '').trim()
+      || String(Cesium.GoogleMaps?.defaultApiKey || '').trim();
     this._onChange = onChange;
     this._onError = onError;
-    this._activeId = googleTileset ? initialStack : 'osm';
+    this._activeId = initialStack;
     this._imageryLayer = null;
     this._imageryProviders = new Map();
     this._isSwitching = false;
@@ -91,10 +135,20 @@ export class MapStackController {
     this._switchGen = 0;
 
     if (!this.getStack(this._activeId) || !this.isStackAvailable(this._activeId)) {
-      this._activeId = this.isStackAvailable(DEFAULT_MAP_STACK_ID)
-        ? DEFAULT_MAP_STACK_ID
-        : (googleTileset ? 'photoreal' : 'osm');
+      this._activeId = this.resolveDefaultStackId();
     }
+  }
+
+  /**
+   * Cold-start preference: Satellite 2D when Google Map Tiles can run, else Streets.
+   * Never defaults to 3D tiles.
+   * @returns {string}
+   */
+  resolveDefaultStackId() {
+    if (this.isStackAvailable(DEFAULT_MAP_STACK_ID)) return DEFAULT_MAP_STACK_ID;
+    if (this.isStackAvailable(FALLBACK_MAP_STACK_ID)) return FALLBACK_MAP_STACK_ID;
+    const first = this.getStacks().find((stack) => stack.available && stack.kind !== 'photoreal');
+    return first?.id || FALLBACK_MAP_STACK_ID;
   }
 
   getStacks() {
@@ -119,9 +173,16 @@ export class MapStackController {
    * @returns {string}
    */
   _unavailableReason(stack) {
-    return stack?.requiresIon
-      ? 'Cesium ion token required for Bing stacks'
-      : `${stack?.label || 'This map stack'} is unavailable`;
+    if (stack?.kind === 'photoreal') {
+      return 'Google Photorealistic 3D Tiles unavailable';
+    }
+    if (stack?.requiresGoogle) {
+      return 'GOOGLE_MAPS_API_KEY required (Map Tiles API)';
+    }
+    if (stack?.requiresIon) {
+      return 'Cesium ion token required for Bing stacks';
+    }
+    return `${stack?.label || 'This map stack'} is unavailable`;
   }
 
   getStack(id) {
@@ -154,13 +215,17 @@ export class MapStackController {
     const stack = this.getStack(id);
     if (!stack) return false;
     if (stack.kind === 'photoreal') return !!this.googleTileset;
+    if (stack.kind === 'google2d') {
+      return !!this.googleApiKey && typeof Cesium.Google2DImageryProvider?.fromUrl === 'function';
+    }
     if (stack.requiresIon) return !!this.cesiumToken;
     return true;
   }
 
   async setStack(id, { silent = false } = {}) {
     const stack = this.getStack(id)
-      || this.getStack(DEFAULT_MAP_STACK_ID)
+      || this.getStack(this.resolveDefaultStackId())
+      || this.getStack(FALLBACK_MAP_STACK_ID)
       || this.getStack('photoreal');
     if (!stack) return null;
 
@@ -195,10 +260,20 @@ export class MapStackController {
       const message = error?.message || String(error);
       this._lastError = message;
       this._onError?.(message, stack);
-      if (this.googleTileset) {
-        await this._activatePhotoreal(gen);
-        if (gen !== this._switchGen) return this.getState();
-        this._activeId = 'photoreal';
+      const fallbackId = this.resolveDefaultStackId();
+      if (fallbackId && fallbackId !== stack.id && this.isStackAvailable(fallbackId)) {
+        try {
+          const fallback = this.getStack(fallbackId);
+          if (fallback?.kind === 'photoreal') {
+            await this._activatePhotoreal(gen);
+          } else if (fallback) {
+            await this._activateGlobeStack(fallback, gen);
+          }
+          if (gen !== this._switchGen) return this.getState();
+          this._activeId = fallbackId;
+        } catch {
+          // Keep prior active id; error already reported.
+        }
       }
       if (!silent) this._emitChange('error');
     } finally {
@@ -218,6 +293,7 @@ export class MapStackController {
       status,
       lastError: this._lastError,
       hasCesiumIonToken: !!this.cesiumToken,
+      hasGoogleMapsApiKey: !!this.googleApiKey,
     };
   }
 
@@ -262,6 +338,8 @@ export class MapStackController {
     let provider;
     if (stack.kind === 'ion') {
       provider = await Cesium.createWorldImageryAsync({ style: stack.style });
+    } else if (stack.kind === 'google2d') {
+      provider = await this._createGoogle2dProvider(stack);
     } else if (stack.kind === 'osm') {
       provider = new Cesium.OpenStreetMapImageryProvider({
         url: 'https://tile.openstreetmap.org/',
@@ -273,6 +351,69 @@ export class MapStackController {
 
     this._imageryProviders.set(stack.id, provider);
     return provider;
+  }
+
+  /**
+   * Google Map Tiles 2D session + imagery provider.
+   * Hybrid uses satellite + layerRoadmap with overlay:false (baked labels).
+   * @param {object} stack
+   * @returns {Promise<Cesium.ImageryProvider>}
+   */
+  async _createGoogle2dProvider(stack) {
+    const key = this.googleApiKey;
+    if (!key) throw new Error('GOOGLE_MAPS_API_KEY required for Google 2D satellite');
+
+    // Cesium.fromUrl only supports plain satellite/roadmap/terrain or a
+    // transparent overlayLayerType. Hybrid (satellite + labels as one basemap)
+    // needs an explicit createSession with overlay:false + layerTypes.
+    if (Array.isArray(stack.layerTypes) && stack.layerTypes.length) {
+      return this._createGoogle2dHybridProvider(stack, key);
+    }
+
+    return Cesium.Google2DImageryProvider.fromUrl({
+      key,
+      mapType: stack.mapType || 'satellite',
+      language: 'en-US',
+      region: 'ZA',
+    });
+  }
+
+  /**
+   * @param {object} stack
+   * @param {string} key
+   */
+  async _createGoogle2dHybridProvider(stack, key) {
+    const endpoint = String(Cesium.GoogleMaps?.mapTilesApiEndpoint || 'https://tile.googleapis.com/');
+    const baseUrl = endpoint.endsWith('/') ? endpoint : `${endpoint}/`;
+    const response = await fetch(`${baseUrl}v1/createSession?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mapType: stack.mapType || 'satellite',
+        language: 'en-US',
+        region: 'ZA',
+        layerTypes: [...stack.layerTypes],
+        overlay: stack.overlay === true,
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`Google Map Tiles session failed (${response.status})${text ? `: ${text.slice(0, 160)}` : ''}`);
+    }
+    const sessionJson = await response.json();
+    const session = sessionJson?.session;
+    const tileWidth = sessionJson?.tileWidth || 256;
+    const tileHeight = sessionJson?.tileHeight || 256;
+    if (!session) throw new Error('Google Map Tiles session missing token');
+
+    return new Cesium.Google2DImageryProvider({
+      url: baseUrl,
+      key,
+      session,
+      tileWidth,
+      tileHeight,
+      credit: Cesium.GoogleMaps?.getDefaultCredit?.() || '© Google',
+    });
   }
 
   _removeImageryLayer() {

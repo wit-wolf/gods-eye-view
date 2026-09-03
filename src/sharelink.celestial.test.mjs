@@ -422,7 +422,7 @@ test('every explicit visual UI gesture claims restore authority before it mutate
     ['// Bloom toggle', '// Bloom intensity slider', 'this._setBloomEnabled(', 'bloom button'],
     ['// Bloom intensity slider', '// Sharpen toggle', 'this._setBloomIntensity(', 'bloom slider'],
     ['// Sharpen toggle', '// Scope mask', 'this._setSharpenEnabled(', 'sharpen button'],
-    ["this._scopeBtn?.addEventListener('click'", "this._scopeFeatherSlider?.addEventListener('input'", 'setScopeMaskEnabled(', 'scope button'],
+    ["this._scopeBtn?.addEventListener('click'", "this._scopeFeatherSlider?.addEventListener('input'", 'this._setScopeUiEnabled(', 'scope button'],
     ["this._scopeFeatherSlider?.addEventListener('input'", 'if (this._sharpenSlider)', 'setScopeMaskFeather(', 'scope feather slider'],
     ["this._sharpenSlider.addEventListener('input'", 'if (this._hudLayoutSelect)', 'this._applySharpenIntensity(', 'sharpen slider'],
     ["this._hudLayoutSelect.addEventListener('change'", 'if (this._cleanViewBtn)', 'this._setHudVariant(', 'HUD layout select'],
@@ -448,7 +448,7 @@ test('every explicit visual UI gesture claims restore authority before it mutate
   );
   assertClaimsBefore(
     hudToggle.slice(
-      hudToggle.indexOf("this._detectionBtn.addEventListener('click'"),
+      hudToggle.indexOf("this._detectionBtn?.addEventListener('click'"),
       hudToggle.indexOf('this._cockpitDisplayToggleBtn'),
     ),
     'cycleDetectionMode()',

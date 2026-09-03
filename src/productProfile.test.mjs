@@ -35,27 +35,36 @@ test('Volo by Volee branding is centralized', () => {
   assert.match(html, /id="scope-toggle"[^>]*aria-pressed="false"/);
 });
 
-test('Volee profile keeps Sites/traffic/fires/Area News and cuts OSINT feeds', () => {
+test('Volee profile keeps property layers only and cuts OSINT / environmental packs', () => {
   assert.equal(PRODUCT_PROFILE.id, 'volee');
-  for (const id of ['sites', 'ancora', 'area-news', 'traffic', 'local-firms', 'earthquakes']) {
+  for (const id of ['sites', 'ancora', 'area-news', 'traffic']) {
     assert.equal(isProductLayerEnabled(id), true, id);
   }
-  for (const id of VOLEE_CUT_LAYER_IDS) {
+  for (const id of [
+    'local-firms',
+    'earthquakes',
+    'local-dams',
+    'local-datacenters',
+    'telegeography-submarine-cables',
+    ...VOLEE_CUT_LAYER_IDS,
+  ]) {
     assert.equal(isProductLayerEnabled(id), false, id);
   }
   assert.equal(isProductFeatureEnabled('voice'), false);
   assert.equal(isProductFeatureEnabled('radio'), false);
   assert.equal(isProductFeatureEnabled('cctv'), false);
   assert.equal(isProductFeatureEnabled('detection'), false);
+  assert.equal(isProductFeatureEnabled('scenes'), false);
   assert.deepEqual(
     [...VOLEE_ENABLED_LAYER_IDS].sort(),
     [...filterLayerStateRegistryForProduct(LAYER_STATE_REGISTRY).map((e) => e.id)].sort(),
   );
+  assert.doesNotMatch(PRODUCT_BRANDING.firstRunDescription, /fires?/i);
+  assert.doesNotMatch(PRODUCT_BRANDING.firstRunTip, /FIRMS|fires?/i);
 });
 
-test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
+test('applyProductChrome hides cut HUD controls including Scenes and reframes first-run', () => {
   const html = readFileSync(join(root, 'index.html'), 'utf8');
-  // Minimal DOM stub with the surfaces product chrome touches.
   const elements = new Map();
   const makeEl = (id, extras = {}) => {
     const el = {
@@ -76,9 +85,9 @@ test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
         if (sel === '[data-first-run-status]') return elements.get('tip');
         if (sel === '[data-first-run-choice="contacts"]') return elements.get('contacts');
         if (sel === '[data-first-run-choice="space-missions"]') return elements.get('space');
+        if (sel === '[data-first-run-choice="environmental"]') return elements.get('environmental');
         if (sel === '[data-first-run-choice="sites"]') return null;
         if (sel === '.first-run-choices') return elements.get('choices');
-        if (sel === '[data-first-run-choice="environmental"]') return elements.get('environmental');
         return null;
       },
       querySelectorAll() { return []; },
@@ -96,15 +105,15 @@ test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
   makeEl('detection-toggle');
   makeEl('models3d-toggle');
   makeEl('global-context-panel');
+  makeEl('scene-panel');
   makeEl('kicker', { textContent: 'VOLEE · MISSION CONTROL' });
   makeEl('desc', { textContent: 'forbidden cockpit' });
-  makeEl('tip', { textContent: 'Tip: the MIC button in the dock lets you talk to the map.' });
+  makeEl('tip', { textContent: 'Tip: open Data Layers for Sites, traffic, and FIRMS fires.' });
   makeEl('contacts');
   makeEl('space');
   makeEl('environmental');
   makeEl('choices');
   const launcher = makeEl('first-run-launcher');
-  launcher.querySelector = makeEl('first-run-launcher').querySelector;
 
   const body = {
     classList: {
@@ -129,7 +138,7 @@ test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
       if (sel.includes('#detection-toggle')) out.push(elements.get('detection-toggle'));
       if (sel.includes('#models3d-toggle')) out.push(elements.get('models3d-toggle'));
       if (sel.includes('#global-context-panel')) out.push(elements.get('global-context-panel'));
-      // applyProductChrome issues many selectors; ignore unknowns.
+      if (sel.includes('#scene-panel')) out.push(elements.get('scene-panel'));
       return out.filter(Boolean);
     },
     createElement() {
@@ -141,20 +150,20 @@ test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
     },
   };
 
-  // Patch launcher querySelector to use the shared map (makeEl overwrote).
   launcher.querySelector = (sel) => {
     if (sel === '.first-run-kicker') return elements.get('kicker');
     if (sel === '#first-run-description') return elements.get('desc');
     if (sel === '[data-first-run-status]') return elements.get('tip');
     if (sel === '[data-first-run-choice="contacts"]') return elements.get('contacts');
     if (sel === '[data-first-run-choice="space-missions"]') return elements.get('space');
+    if (sel === '[data-first-run-choice="environmental"]') return elements.get('environmental');
     if (sel === '[data-first-run-choice="sites"]') return null;
     if (sel === '.first-run-choices') return elements.get('choices');
-    if (sel === '[data-first-run-choice="environmental"]') return elements.get('environmental');
     return null;
   };
   elements.get('choices').querySelector = (sel) => {
     if (sel === '[data-first-run-choice="environmental"]') return elements.get('environmental');
+    if (sel === '[data-first-run-choice="explore"]') return { id: 'explore' };
     return null;
   };
 
@@ -163,13 +172,15 @@ test('applyProductChrome hides cut HUD controls and reframes first-run', () => {
   assert.equal(elements.get('cctv-panel').hidden, true);
   assert.equal(elements.get('radio-panel').hidden, true);
   assert.equal(elements.get('detection-toggle').hidden, true);
+  assert.equal(elements.get('scene-panel').hidden, true);
+  assert.equal(elements.get('environmental').hidden, true);
   assert.equal(elements.get('kicker').textContent, 'VOLO · BY VOLEE');
   assert.match(elements.get('desc').textContent, /property/i);
-  assert.doesNotMatch(elements.get('tip').textContent, /MIC button/i);
+  assert.doesNotMatch(elements.get('desc').textContent, /fires?/i);
+  assert.doesNotMatch(elements.get('tip').textContent, /FIRMS|fires?/i);
   assert.equal(doc.title, 'Volo by Volee');
   assert.equal(elements.get('contacts').hidden, true);
-  assert.ok(elements.get('choices')._inserted?.node?.dataset?.firstRunChoice === 'sites'
-    || elements.get('choices')._inserted?.node);
+  assert.match(html, /id="map-style-panel"/);
   assert.match(html, /data-first-run-choice="environmental"/);
 });
 
@@ -178,6 +189,7 @@ test('main.js skips voice init and registers only product layers', () => {
   assert.match(main, /filterLayerStateRegistryForProduct/);
   assert.match(main, /isProductFeatureEnabled\('voice'\)/);
   assert.match(main, /PRODUCT_LAYER_STATE_REGISTRY/);
+  assert.match(main, /resolveDefaultStackId/);
   assert.doesNotMatch(main, /dataManager\.register\(flightsLayer\)/);
   assert.doesNotMatch(main, /dataManager\.register\(cctvLayer\)/);
   assert.doesNotMatch(main, /dataManager\.register\(radioLayer\)/);

@@ -571,17 +571,19 @@ test('markup, startup ordering and accessibility remain pinned', () => {
   assert.match(visible, /fires?/i, 'the tile must promise the fires it enables');
 
   assert.ok(
-    html.includes('<p id="first-run-description">Photoreal sites, weather, and fires on one globe'
+    html.includes('<p id="first-run-description">Sites, Ancora centres, traffic, and Area News on one globe'
       + '—for property work, not a spy console.</p>'),
-    'first-run copy must describe the property globe',
+    'first-run copy must describe the property globe without fires',
   );
+  assert.doesNotMatch(html, /FIRMS fires/);
   assert.doesNotMatch(html, /MIC button/);
   assert.doesNotMatch(html, /data-first-run-choice="contacts"/);
   assert.doesNotMatch(html, /data-first-run-choice="space-missions"/);
 
-  // Menu order is Sites → Environmental → Explore for the property product.
+  // Menu order is Sites → Environmental (cut/hidden) → Explore for the property product.
   const order = [...html.matchAll(/data-first-run-choice="([a-z-]+)"/g)].map((match) => match[1]);
   assert.deepEqual(order, ['sites', 'environmental', 'explore']);
+  assert.match(html, /data-first-run-choice="environmental"[^>]*hidden/);
   assert.doesNotMatch(html, /data-first-run-choice="infrastructure"/,
     'the removed tile must leave no markup behind');
 
@@ -661,11 +663,11 @@ test('the voice TOOL SCHEMA is byte-identical to main — the mission mapping is
   const end = src.indexOf('\n];\n', start);
   const block = src.slice(start, end + 4);
 
-  assert.equal(block.length, 31152, 'tool schema byte length drifted from the frozen baseline');
+  assert.equal(block.length, 31385, 'tool schema byte length drifted from the frozen baseline');
   assert.equal(
     crypto.createHash('sha256').update(block).digest('hex'),
-    'e62746a0873cafbe4248444f10909255794bee88ca54aa3c20031cc7ffd62dce',
-    'the first-run missions must ride EXISTING tools: no schema edit, no cache bust',
+    '8b75ead22ec451b07808aeb2e54c899f84812f0837316b9a730e342446e6fe82',
+    'set_map_stack / set_panel_open enums updated for Map style stacks; missions still use existing tools',
   );
 
   // ...and the mapping that makes them reachable by voice is one instruction

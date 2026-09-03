@@ -27,6 +27,7 @@ import {
   LayerStateCoordinator,
 } from './data/layerState.js';
 import { renderMapStackChips, syncMapStackChips } from './mapStackChips.js';
+import { renderMapStyleWidget, syncMapStyleWidget } from './mapStyleWidget.js';
 import { DEFAULT_MAP_STACK_ID } from './mapStackController.js';
 import { OrbitController } from './orbit.js';
 import {
@@ -222,6 +223,7 @@ const PANEL_LAYOUT_STORAGE_VERSION = 'v6';
 const SHARE_PANEL_STATE_SPECS = Object.freeze([
   { id: 'control-panel', pinnable: true },
   { id: 'location-bar', pinnable: true },
+  { id: 'map-style-panel' },
   { id: 'data-panel' },
   { id: 'cctv-panel' },
   { id: 'radio-panel' },
@@ -232,6 +234,7 @@ const SHARE_PANEL_STATE_SPECS = Object.freeze([
 ]);
 /** Standard map-view panels cleared out of the way on a fresh Cockpit entry. */
 const COCKPIT_ENTRY_COLLAPSE_PANEL_IDS = Object.freeze([
+  'map-style-panel',
   'data-panel',
   'cctv-panel',
   'scene-panel',
@@ -2273,6 +2276,9 @@ export class StyleManager {
     this._scopeFeatherValue = document.getElementById('scope-feather-value');
     this._mapStackChips = document.getElementById('map-stack-chips');
     this._mapStackStatus = document.getElementById('map-stack-status');
+    this._mapStyleOptions = document.getElementById('map-style-options');
+    this._mapStyleStatus = document.getElementById('map-style-status');
+    this._mapStylePanel = document.getElementById('map-style-panel');
     this._google3dBtn = document.getElementById('google-3d-toggle');
     this._perfFastBtn = document.getElementById('perf-fast-toggle');
     this._performanceFast = false;
@@ -3582,18 +3588,30 @@ export class StyleManager {
   }
 
   /**
-   * Renders the validated map stack chip row from the matching controller
-   * entries. Cesium ion/Bing chips remain keyboard-focusable but unavailable,
-   * with an accessible explanation, until a CESIUM_ION_TOKEN is configured.
+   * Renders map stack chips (DISPLAY) and the dedicated Map style panel from
+   * the matching controller entries. Cesium ion/Bing options remain visible but
+   * unavailable, with an accessible explanation, until a CESIUM_ION_TOKEN is
+   * configured. Google 2D styles need GOOGLE_MAPS_API_KEY (Map Tiles).
    * @returns {void}
    */
   _initMapStackControl() {
     if (!this.mapStackController) return;
 
+    const stacks = this.mapStackController.getStacks();
+    const activeId = this.mapStackController.getActiveId();
+    const onSelect = (stackId) => { this._setMapStack(stackId); };
+
     if (this._mapStackChips) {
-      renderMapStackChips(this._mapStackChips, this.mapStackController.getStacks(), {
-        activeId: this.mapStackController.getActiveId(),
-        onSelect: (stackId) => { this._setMapStack(stackId); },
+      renderMapStackChips(this._mapStackChips, stacks, {
+        activeId,
+        onSelect,
+      });
+    }
+
+    if (this._mapStyleOptions) {
+      renderMapStyleWidget(this._mapStyleOptions, stacks, {
+        activeId,
+        onSelect,
       });
     }
 
@@ -3692,13 +3710,14 @@ export class StyleManager {
   }
 
   /**
-   * Syncs the map stack chip row, DISPLAY 3D-tiles toggle, and status chip.
+   * Syncs the map stack chip row, Map style panel, DISPLAY 3D-tiles toggle, and status.
    * @param {object} state - Map stack controller state.
    * @returns {void}
    */
   _renderMapStackState(state) {
     if (!state) return;
     syncMapStackChips(this._mapStackChips, state.activeId);
+    syncMapStyleWidget(this._mapStyleOptions, state.activeId);
     if (state.activeId && state.activeId !== 'photoreal') {
       this._lastNonPhotorealStackId = state.activeId;
     }
@@ -3712,13 +3731,22 @@ export class StyleManager {
         ? 'Google Photorealistic 3D Tiles — 3D buildings (off by default for performance)'
         : 'Google 3D tiles unavailable';
     }
+    const stack = state.activeStack;
+    const label = state.status === 'switching'
+      ? '...'
+      : (stack?.shortLabel || stack?.label || 'MAP');
     if (this._mapStackStatus) {
-      const stack = state.activeStack;
-      const label = state.status === 'switching'
-        ? '...'
-        : (stack?.shortLabel || stack?.label || 'MAP');
       this._mapStackStatus.textContent = label;
       this._mapStackStatus.classList.toggle('warn', !!state.lastError);
+    }
+    if (this._mapStyleStatus) {
+      const detail = state.status === 'switching'
+        ? 'Switching…'
+        : (state.lastError
+          ? state.lastError
+          : (stack?.description || stack?.label || label));
+      this._mapStyleStatus.textContent = detail;
+      this._mapStyleStatus.classList.toggle('warn', !!state.lastError);
     }
   }
 
@@ -8130,7 +8158,11 @@ export class StyleManager {
       return { ok: false, error: `Unknown map stack: ${stackId}`, available: stacks.map((s) => s.id) };
     }
     if (!target.available) {
-      return { ok: false, error: `${target.label} requires a Cesium ion token`, activeStack: this.mapStackController.getActiveId() };
+      return {
+        ok: false,
+        error: target.unavailableReason || `${target.label} is unavailable`,
+        activeStack: this.mapStackController.getActiveId(),
+      };
     }
     await this._setMapStack(stackId);
     const state = this.mapStackController.getState();
