@@ -53,7 +53,7 @@ Kept layers report source and freshness honestly — including partial, delayed,
 - **📍 Sites:** KMZ/KML import, November demo pins, **PIN** drop mode, clickable research brief (locality + Places competitors + Access/traffic + notes — no Genius scores).
 - **📰 Area News:** Data Layers toggle (off by default). Sites-style widget with retail-then-business headlines for the focused SA area via the existing regional briefing path.
 - **🗺 Map style:** Dedicated left-rail widget — **Satellite** (Google 2D Map Tiles), **Streets** (OSM), **Satellite + labels** (Google hybrid), **3D buildings** (Photorealistic tiles, off by default). Bing Aerial/Labels appear with an honest “ion token required” state when `CESIUM_ION_TOKEN` is missing. Cold start: Satellite 2D, else Streets.
-- **🚗 Traffic / roads:** Without `TOMTOM_API_KEY` the Data Layers row is **Traffic (simulated)**. With TomTom it becomes live **Street Traffic**.
+- **🚗 Traffic / roads:** Without `TOMTOM_API_KEY` the Data Layers row is **Traffic (simulated)**. With TomTom it becomes live **Street Traffic** — congestion-colored road overlay (plus dots) on Satellite / Streets / Hybrid; works with 3D buildings off.
 - **✨ Bloom (DISPLAY):** Soft cinematic glow post-process — optional; costs GPU. Off by default.
 - **⚡ Fast (DISPLAY):** Performance preset for SA property work — bloom/sharpen off, 3D tiles off, stronger Sites clustering at overview, gentler DEMO paint, 30 fps cap.
 - **🌤 Weather:** Local weather readouts / cockpit WX where the globe already surfaces them.
