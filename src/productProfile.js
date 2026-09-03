@@ -6,7 +6,7 @@
  * while this profile is active.
  */
 
-/** @typedef {'voice'|'radio'|'cctv'|'detection'|'intelClassification'|'militaryVisualStyles'|'cockpitContacts'|'models3d'|'hudOpenAiSummary'|'contactsContext'|'spaceMissionsContext'} ProductFeature */
+/** @typedef {'voice'|'radio'|'cctv'|'detection'|'intelClassification'|'militaryVisualStyles'|'cockpitContacts'|'models3d'|'hudOpenAiSummary'|'contactsContext'|'spaceMissionsContext'|'scenes'} ProductFeature */
 
 /**
  * Single source of truth for user-facing product chrome.
@@ -30,28 +30,23 @@ export const PRODUCT_BRANDING = Object.freeze({
   hudTopRight: 'SITE',
   firstRunKicker: 'VOLO · BY VOLEE',
   firstRunDescription:
-    'Photoreal sites, weather, and fires on one globe—for property work, not a spy console.',
-  firstRunTip: 'Tip: open Data Layers for Sites, Ancora centres, traffic, and FIRMS fires.',
+    'Sites, Ancora centres, traffic, and Area News on one globe—for property work, not a spy console.',
+  firstRunTip: 'Tip: open Data Layers for Sites, Ancora centres, traffic, and Area News. Use Map style for Satellite / Streets.',
   /** Property viewing starts without the circular scope mask. */
   scopeEnabledByDefault: false,
 });
 
 /**
- * Layers Werner kept for property / tenant-rep work on the photoreal globe.
- * Fires (NASA FIRMS) and traffic/roads matter for site access; Area News and
- * infrastructure local layers help SA due diligence. Aircraft, ships, sats,
- * CCTV, radio stay out.
+ * Layers kept for property / tenant-rep work on the globe.
+ * Traffic/roads matter for site access; Area News helps SA due diligence.
+ * OSINT / environmental / infrastructure packs stay out (quakes, FIRMS, dams,
+ * cables, datacenters, aircraft, ships, sats, CCTV, radio).
  */
 export const VOLEE_ENABLED_LAYER_IDS = Object.freeze([
   'sites',
   'ancora',
   'area-news',
   'traffic',
-  'local-firms',
-  'earthquakes',
-  'local-datacenters',
-  'local-dams',
-  'telegeography-submarine-cables',
 ]);
 
 /** Cut from the product surface (do not register / start / show controls). */
@@ -66,6 +61,11 @@ export const VOLEE_CUT_LAYER_IDS = Object.freeze([
   'cctv',
   'radio',
   'bikeshare',
+  'earthquakes',
+  'local-firms',
+  'local-dams',
+  'local-datacenters',
+  'telegeography-submarine-cables',
 ]);
 
 /**
@@ -112,6 +112,8 @@ export const PRODUCT_PROFILE = Object.freeze({
     hudOpenAiSummary: false,
     contactsContext: false,
     spaceMissionsContext: false,
+    /** Scene Director tray / recipes — cinematic workflow, not property HUD. */
+    scenes: false,
   }),
 });
 
@@ -202,6 +204,9 @@ export function applyProductChrome(documentRef = globalThis.document, profile = 
   if (!profile.features.voice) {
     selectors.push('#gev-voice-controls', '[data-gev-voice]');
   }
+  if (!profile.features.scenes) {
+    selectors.push('#scene-panel', '#scene-runtime');
+  }
 
   for (const selector of selectors) {
     for (const el of doc.querySelectorAll(selector)) {
@@ -211,7 +216,7 @@ export function applyProductChrome(documentRef = globalThis.document, profile = 
     }
   }
 
-  // First-run: drop spy missions; keep environmental + explore; add Sites.
+  // First-run: drop spy + environmental (quakes/FIRMS cut); keep explore; add Sites.
   const launcher = doc.getElementById('first-run-launcher');
   if (launcher) {
     const kicker = launcher.querySelector('.first-run-kicker');
@@ -221,10 +226,10 @@ export function applyProductChrome(documentRef = globalThis.document, profile = 
       description.textContent = brand.firstRunDescription;
     }
     const tip = launcher.querySelector('[data-first-run-status]');
-    if (tip && (/MIC button/i.test(tip.textContent || '') || /Data Layers/i.test(tip.textContent || ''))) {
+    if (tip && (/MIC button/i.test(tip.textContent || '') || /Data Layers/i.test(tip.textContent || '') || /FIRMS|fires/i.test(tip.textContent || ''))) {
       tip.textContent = brand.firstRunTip;
     }
-    for (const choice of ['contacts', 'space-missions']) {
+    for (const choice of ['contacts', 'space-missions', 'environmental']) {
       const btn = launcher.querySelector(`[data-first-run-choice="${choice}"]`);
       if (btn) {
         btn.hidden = true;
@@ -232,11 +237,13 @@ export function applyProductChrome(documentRef = globalThis.document, profile = 
         btn.classList.add('product-surface-cut');
       }
     }
-    // Ensure a Sites mission tile exists (inserted before environmental).
+    // Ensure a Sites mission tile exists (inserted before explore if missing).
     if (!launcher.querySelector('[data-first-run-choice="sites"]')) {
       const choices = launcher.querySelector('.first-run-choices');
+      const explore = choices?.querySelector('[data-first-run-choice="explore"]');
       const environmental = choices?.querySelector('[data-first-run-choice="environmental"]');
-      if (choices && environmental) {
+      const before = environmental || explore;
+      if (choices && before) {
         const sitesBtn = doc.createElement('button');
         sitesBtn.type = 'button';
         sitesBtn.dataset.firstRunChoice = 'sites';
@@ -245,7 +252,7 @@ export function applyProductChrome(documentRef = globalThis.document, profile = 
           '<span><strong>SITES</strong><small>Import KMZ pins or load the November demo</small></span>',
           '<span class="material-symbols-outlined first-run-arrow" aria-hidden="true">arrow_forward</span>',
         ].join('');
-        choices.insertBefore(sitesBtn, environmental);
+        choices.insertBefore(sitesBtn, before);
       }
     }
   }

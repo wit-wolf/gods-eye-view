@@ -373,6 +373,7 @@ test('fresh Cockpit entry temporarily collapses map panels and exit restores the
   );
   assert.ok(entryPanels, 'Cockpit entry panel list is missing');
   for (const panelId of [
+    'map-style-panel',
     'data-panel',
     'cctv-panel',
     'scene-panel',

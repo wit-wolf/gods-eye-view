@@ -54,7 +54,7 @@ const PANEL_ALIASES = new Map([
   ['sources', 'control-panel'],
 ]);
 
-const PANEL_IDS = new Set(['data-panel', 'location-bar', 'control-panel', 'cctv-panel', 'radio-panel', 'global-context-panel', 'scene-panel', 'pp-toggles']);
+const PANEL_IDS = new Set(['data-panel', 'map-style-panel', 'location-bar', 'control-panel', 'cctv-panel', 'radio-panel', 'global-context-panel', 'scene-panel', 'pp-toggles']);
 const CONTEXT_MODE_ALIASES = new Map([
   ['off', 'off'],
   ['none', 'off'],
@@ -207,18 +207,26 @@ const CITY_ALIASES = new Map([
 // cleanly and then fail at the controller with "Unknown map stack", which reads
 // to the operator as a broken command rather than a retired source.
 const STACK_ALIASES = new Map([
+  ['google-satellite', 'google-satellite'],
+  ['google satellite', 'google-satellite'],
+  ['map satellite', 'google-satellite'],
+  ['satellite map', 'google-satellite'],
+  ['google 2d', 'google-satellite'],
+  ['google-hybrid', 'google-hybrid'],
+  ['hybrid', 'google-hybrid'],
+  ['satellite labels', 'google-hybrid'],
+  ['satellite + labels', 'google-hybrid'],
   ['photoreal', 'photoreal'],
   ['google 3d', 'photoreal'],
-  ['google', 'photoreal'],
   ['3d', 'photoreal'],
+  ['3d buildings', 'photoreal'],
   ['photorealistic', 'photoreal'],
   ['bing-aerial', 'bing-aerial'],
   ['bing aerial', 'bing-aerial'],
   ['bing-labels', 'bing-labels'],
   ['bing labels', 'bing-labels'],
-  ['labels', 'bing-labels'],
-  ['aerial with labels', 'bing-labels'],
   ['osm', 'osm'],
+  ['streets', 'osm'],
   ['openstreetmap', 'osm'],
   ['open street map', 'osm'],
   ['road', 'osm'],

@@ -210,7 +210,10 @@ async function init() {
     const mapStackController = new MapStackController(viewer, {
       googleTileset: tileset,
       cesiumToken,
-      initialStack: 'osm',
+      googleApiKey,
+      // Cold start: Google 2D satellite when Map Tiles works; else Streets (OSM).
+      // Never default Photorealistic 3D tiles on.
+      initialStack: 'google-satellite',
       // Task 5 (height-datum fix): rebroadcast stack changes as a window
       // CustomEvent so data layers (CCTV per-regime ground resolution) can
       // react without coupling MapStackController to layer modules. Fires on
@@ -221,7 +224,7 @@ async function init() {
       },
       onError: (message) => console.warn('[MapStack]', message),
     });
-    await mapStackController.setStack('osm', { silent: true });
+    await mapStackController.setStack(mapStackController.resolveDefaultStackId(), { silent: true });
 
     // Initialize the style manager (post-processing, HUD, locations, share links)
     const styleManager = new StyleManager(viewer, { mapStackController });

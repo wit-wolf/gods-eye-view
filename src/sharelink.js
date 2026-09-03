@@ -35,6 +35,7 @@ const SHARE_CREATED_AT_PARAM = 'at';
 const SHARE_PANEL_STATE_REGISTRY = Object.freeze([
   { id: 'control-panel', token: 'c', pinnable: true },
   { id: 'location-bar', token: 'l', pinnable: true },
+  { id: 'map-style-panel', token: 'y', pinnable: false },
   { id: 'data-panel', token: 'd', pinnable: false },
   { id: 'cctv-panel', token: 'v', pinnable: false },
   { id: 'radio-panel', token: 'r', pinnable: false },
@@ -123,7 +124,7 @@ export class ShareLinkManager {
     // null = the altitude-adaptive terminus (the default). A number pins the
     // outside-fill opacity as a percent, 94..100. (`sce`, 2026-08-17)
     this._scopeTerminusPct = null;
-    this._mapStack = 'osm';
+    this._mapStack = 'google-satellite';
     this._layerStateProvider = null;
     this._panelStateProvider = null;
     this._styleParamStateProvider = null;
@@ -227,7 +228,7 @@ export class ShareLinkManager {
       scopeTerminusPct: params.has('sce')
         ? clampScopeTerminusPct(params.get('sce'))
         : null,
-      mapStack: params.get('map') || 'osm',
+      mapStack: params.get('map') || 'google-satellite',
       layerState: decodedLayerState,
       layerStateInvalid: params.get('v') === '2'
         && params.has('l')

@@ -2,7 +2,9 @@
 body.product-volee .product-surface-cut,
 body.product-volee #cctv-panel.product-surface-cut,
 body.product-volee #radio-panel.product-surface-cut,
-body.product-volee #global-context-panel.product-surface-cut {
+body.product-volee #global-context-panel.product-surface-cut,
+body.product-volee #scene-panel.product-surface-cut,
+body.product-volee #scene-runtime.product-surface-cut {
   display: none !important;
 }
 
@@ -1422,6 +1424,7 @@ body.ui-clean-view #pp-toggles,
 body.ui-clean-view #param-slider-panel,
 body.ui-clean-view #control-panel,
 body.ui-clean-view #location-bar,
+body.ui-clean-view #map-style-panel,
 body.ui-clean-view #data-panel,
 body.ui-clean-view #cctv-panel,
 body.ui-clean-view #radio-panel,
@@ -4458,7 +4461,23 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   transition: opacity var(--transition-smooth), visibility var(--transition-smooth), transform var(--transition-smooth);
 }
 
-#data-panel.active {
+#map-style-panel {
+  --panel-expanded-width: 280px;
+  position: fixed;
+  top: calc(var(--left-stack-top) + var(--left-stack-gap));
+  left: var(--left-stack-x);
+  right: auto;
+  bottom: auto;
+  z-index: 100;
+  width: var(--panel-expanded-width);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  transition: opacity var(--transition-smooth), visibility var(--transition-smooth), transform var(--transition-smooth);
+}
+
+#data-panel.active,
+#map-style-panel.active {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
@@ -4473,7 +4492,17 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   pointer-events: none;
 }
 
-.data-panel-inner {
+#map-style-panel .panel-glow {
+  position: absolute;
+  inset: -20px;
+  background: radial-gradient(ellipse at center, var(--accent-dim) 0%, transparent 60%);
+  filter: blur(20px);
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.data-panel-inner,
+.map-style-panel-inner {
   position: relative;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
@@ -4489,6 +4518,97 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.map-style-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.map-style-option {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.map-style-option:hover,
+.map-style-option:focus-visible {
+  background: rgba(0, 212, 255, 0.08);
+  border-color: rgba(0, 212, 255, 0.22);
+  outline: none;
+}
+
+.map-style-option.active {
+  background: rgba(0, 212, 255, 0.14);
+  border-color: rgba(0, 212, 255, 0.35);
+}
+
+.map-style-option.unavailable,
+.map-style-option[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.map-style-option-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.map-style-option-label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.map-style-option-desc,
+.map-style-option-unavailable {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+.map-style-option-unavailable {
+  color: #f0b27a;
+}
+
+.map-style-option-mark {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.map-style-status {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.map-style-status.warn {
+  color: #f0b27a;
 }
 
 .data-toggle-list {
@@ -6386,6 +6506,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   max-height: calc(100vh - 24px);
 }
 
+#left-panel-stack > #map-style-panel,
 #left-panel-stack > #data-panel,
 #left-panel-stack > #cctv-panel,
 #left-panel-stack > #global-context-panel,
@@ -6400,6 +6521,10 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   flex: 0 0 auto;
   min-height: 0;
   pointer-events: auto;
+}
+
+#left-panel-stack > #map-style-panel {
+  order: 0;
 }
 
 #left-panel-stack > #data-panel {
@@ -6421,6 +6546,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   display: none;
 }
 
+#left-panel-stack > #map-style-panel:not(.collapsed),
 #left-panel-stack > #data-panel:not(.collapsed),
 #left-panel-stack > #cctv-panel:not(.collapsed),
 #left-panel-stack > #scene-panel:not(.collapsed) {
@@ -6434,13 +6560,14 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
  * When an expanded panel and its collapsed siblings fit together, preserve
  * the canonical control order and center their combined stack at 50vh.
  */
-#left-panel-stack.layout-tail > :is(#data-panel, #cctv-panel, #scene-panel):not(.collapsed) {
+#left-panel-stack.layout-tail > :is(#map-style-panel, #data-panel, #cctv-panel, #scene-panel):not(.collapsed) {
   box-sizing: border-box;
   flex: 0 0 var(--left-panel-allocated-height);
   height: var(--left-panel-allocated-height);
   max-height: var(--left-panel-allocated-height);
 }
 
+#left-panel-stack > #map-style-panel:not(.collapsed) .map-style-panel-inner,
 #left-panel-stack > #data-panel:not(.collapsed) .data-panel-inner,
 #left-panel-stack > #cctv-panel:not(.collapsed) .cctv-panel-inner,
 #left-panel-stack > #scene-panel:not(.collapsed) .scene-panel-inner {
@@ -6448,6 +6575,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   max-height: 100%;
 }
 
+#left-panel-stack > #map-style-panel:not(.collapsed) .map-style-panel-inner,
 #left-panel-stack > #data-panel:not(.collapsed) .data-panel-inner {
   overflow: hidden;
 }
@@ -6716,6 +6844,8 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
 }
 
 #control-panel.collapsed .button-grid,
+#map-style-panel.collapsed .map-style-option-list,
+#map-style-panel.collapsed .map-style-status,
 #data-panel.collapsed .data-toggle-list,
 #global-context-panel.collapsed #radio-panel,
 #global-context-panel.collapsed #military-awareness-panel,
@@ -6742,6 +6872,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
   display: none !important;
 }
 
+#map-style-panel.collapsed,
 #data-panel.collapsed,
 #cctv-panel.collapsed,
 #scene-panel.collapsed {
@@ -6750,6 +6881,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
 
 #global-context-panel #radio-panel.collapsed { width: 100%; }
 
+#map-style-panel.collapsed .panel-title,
 #data-panel.collapsed .panel-title,
 #cctv-panel.collapsed .panel-title,
 #radio-panel.collapsed .panel-title,
@@ -6759,6 +6891,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
 }
 
 #control-panel.collapsed .panel-inner,
+#map-style-panel.collapsed .map-style-panel-inner,
 #data-panel.collapsed .data-panel-inner,
 #cctv-panel.collapsed .cctv-panel-inner,
 #radio-panel.collapsed .radio-panel-inner,
@@ -6769,6 +6902,7 @@ body.cockpit-mode #intel-hud .hud-right-edge { right: 22px; }
 }
 
 #control-panel.collapsed .panel-header,
+#map-style-panel.collapsed .panel-header,
 #data-panel.collapsed .panel-header,
 #cctv-panel.collapsed .panel-header,
 #radio-panel.collapsed .panel-header,
@@ -6790,6 +6924,7 @@ body.recording-mode #clean-view-exit,
 body.recording-mode #param-slider-panel,
 body.recording-mode #control-panel,
 body.recording-mode #location-bar,
+body.recording-mode #map-style-panel,
 body.recording-mode #data-panel,
 body.recording-mode #cctv-panel,
 body.recording-mode #radio-panel,
@@ -6911,6 +7046,7 @@ body.scene-playback-mode :is(#clear-selected-layers, #reset-globe-view) {
     font-size: 9px;
   }
 
+  #map-style-panel,
   #data-panel {
     top: auto;
     left: 16px;
@@ -6918,6 +7054,7 @@ body.scene-playback-mode :is(#clear-selected-layers, #reset-globe-view) {
     width: 260px;
   }
 
+  #map-style-panel.collapsed,
   #data-panel.collapsed {
     width: 260px;
   }
@@ -7004,10 +7141,12 @@ body.scene-playback-mode :is(#clear-selected-layers, #reset-globe-view) {
     width: min(244px, calc(100vw - 32px));
   }
 
+  #left-panel-stack > #map-style-panel,
   #left-panel-stack > #data-panel,
   #left-panel-stack > #cctv-panel,
   #left-panel-stack > #global-context-panel,
   #left-panel-stack > #scene-panel,
+  #left-panel-stack > #map-style-panel.collapsed,
   #left-panel-stack > #data-panel.collapsed,
   #left-panel-stack > #cctv-panel.collapsed,
   #left-panel-stack > #global-context-panel.collapsed,

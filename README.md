@@ -2,9 +2,9 @@
 
 # 🌐 Volo by Volee
 
-### A property globe — Sites, weather, and fires. Google 3D tiles optional.
+### A property globe — Sites, Ancora, traffic, and Area News. Google Satellite 2D by default; 3D tiles optional.
 
-**Volo** is the product; **Volee** is the studio. This fork’s property / tenant-rep globe lives in [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (upstream *God's Eye View*; repo slug unchanged). Aircraft, ships, satellites, CCTV, voice, and radio stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: OSM / Bing imagery by default with an opt-in **Google Photorealistic 3D Tiles** toggle, the **Sites** layer (KMZ/KML import + demo + research brief), South Africa fly-tos, weather, NASA FIRMS fires, and traffic/roads when configured.
+**Volo** is the product; **Volee** is the studio. This fork’s property / tenant-rep globe lives in [`wit-wolf/gods-eye-view`](https://github.com/wit-wolf/gods-eye-view) — a fork of [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view) (upstream *God's Eye View*; repo slug unchanged). Aircraft, ships, satellites, CCTV, voice, radio, fires, quakes, and infra packs stay in the codebase behind a product profile but are **off the HUD and do not start** on this build. What you get: **Google 2D satellite** (Map Tiles API + existing Maps key) on cold start with **Streets** (OSM) fallback, opt-in **3D buildings**, the **Sites** layer (KMZ/KML import + demo + research brief), Ancora centres, Area News, South Africa fly-tos, weather, and traffic/roads when configured.
 
 *No place left behind.*
 
@@ -30,11 +30,11 @@
 
 ## 🌍 Why This Exists
 
-**Volo by Volee** turns the open God's Eye View foundation into a property tool. Site pins, fires, traffic, and a photoreal Earth — not an OSINT spy console.
+**Volo by Volee** turns the open God's Eye View foundation into a property tool. Site pins, Ancora centres, traffic, and Area News — not an OSINT spy console.
 
-The upstream project fused public signals into a browser globe. This fork keeps that globe and the Sites workflow, and **cuts** aircraft / AIS / satellites / CCTV / voice / radio from the product surface (see `src/productProfile.js`) so they never register, never poll, and never show controls. Flip the profile later if you need those feeds back; the modules and Vite proxies remain.
+The upstream project fused public signals into a browser globe. This fork keeps that globe and the Sites workflow, and **cuts** aircraft / AIS / satellites / CCTV / voice / radio / fires / quakes / dams / cables / datacenters from the product surface (see `src/productProfile.js`) so they never register, never poll, and never show controls. Flip the profile later if you need those feeds back; the modules and Vite proxies remain.
 
-> Photoreal sites on one globe. Weather and fires when the work needs them. No TOP SECRET theatre.
+> Sites and centres on one globe. Traffic and Area News when the work needs them. No TOP SECRET theatre.
 
 Kept layers report source and freshness honestly — including partial, delayed, simulated, and unavailable states. No fake PropertyCentral, competitors, or zoning data.
 
@@ -52,19 +52,18 @@ Kept layers report source and freshness honestly — including partial, delayed,
 
 - **📍 Sites:** KMZ/KML import, November demo pins, **PIN** drop mode, clickable research brief (locality + Places competitors + Access/traffic + notes — no Genius scores).
 - **📰 Area News:** Data Layers toggle (off by default). Sites-style widget with retail-then-business headlines for the focused SA area via the existing regional briefing path.
-- **🌐 Globe:** OSM imagery on cold start (fast). Turn on **3D tiles** in DISPLAY (or MAP SOURCE → Google 3D tiles) for Photorealistic buildings. Cape Town home opens high above the city bowl.
-- **🔥 Fires & quakes:** NASA FIRMS active fires and USGS earthquakes for environmental context on site work.
+- **🗺 Map style:** Dedicated left-rail widget — **Satellite** (Google 2D Map Tiles), **Streets** (OSM), **Satellite + labels** (Google hybrid), **3D buildings** (Photorealistic tiles, off by default). Bing Aerial/Labels appear with an honest “ion token required” state when `CESIUM_ION_TOKEN` is missing. Cold start: Satellite 2D, else Streets.
 - **🚗 Traffic / roads:** Without `TOMTOM_API_KEY` the Data Layers row is **Traffic (simulated)**. With TomTom it becomes live **Street Traffic**.
 - **✨ Bloom (DISPLAY):** Soft cinematic glow post-process — optional; costs GPU. Off by default.
 - **⚡ Fast (DISPLAY):** Performance preset for SA property work — bloom/sharpen off, 3D tiles off, stronger Sites clustering at overview, gentler DEMO paint, 30 fps cap.
 - **🌤 Weather:** Local weather readouts / cockpit WX where the globe already surfaces them.
 - **🔗 Share Links:** Camera and enabled layers serialize into a URL.
 - **🔍 SA search:** Location search uses browser Places API (New) with the same
-  referrer-restricted Maps key as 3D tiles (`regionCode` / `includedRegionCodes: za`).
+  referrer-restricted Maps key as Map Tiles / 3D tiles (`regionCode` / `includedRegionCodes: za`).
   “George” is Western Cape; shopping centres like Canal Walk / Hemingways resolve
   in-country.
 
-**Cut from this product (HUD + runtime):** aircraft, military air, ships/AIS, satellites, rocket launches, CCTV, radio, voice/MIC, Detection overlay, and stacked intel looks (CRT / NVG / FLIR / Noir / Snow). Re-enable via `src/productProfile.js`.
+**Cut from this product (HUD + runtime):** aircraft, military air, ships/AIS, satellites, rocket launches, CCTV, radio, voice/MIC, Detection overlay, Scenes tray, earthquakes, FIRMS fires, dams, submarine cables, datacenters, and stacked intel looks (CRT / NVG / FLIR / Noir / Snow). Re-enable via `src/productProfile.js`.
 
 ---
 
@@ -84,12 +83,12 @@ npm run dev -- --host localhost --port 4173
 
 For snappier SA property use (Sites DEMO, overview zooms):
 
-- Keep **3D tiles** off (DISPLAY / MAP SOURCE) — OSM imagery is the cold-start default.
+- Keep **3D buildings** off in Map style / DISPLAY — Satellite 2D is the cold-start default.
 - Turn on DISPLAY **Fast** when screening many pins (stronger clustering, gentler paint, bloom/sharpen off, 30 fps).
 - Prefer production preview over Vite HMR when comparing feel: `npm run build && npm run preview`.
-- Leave Traffic / Area News / FIRMS off until needed — disabled layers do not network or animate.
+- Leave Traffic / Area News off until needed — disabled layers do not network or animate.
 
-3. Open **`http://localhost:4173`**. Cold start settles in under two seconds on a recent laptop (median 1.86 s in a point-in-time M5/Chrome capture — [docs/PERFORMANCE.md](docs/PERFORMANCE.md); a comparison baseline, not a hardware requirement). A first-run card offers to stage a mission for you — **Sites**, **Environmental**, or explore manually.
+3. Open **`http://localhost:4173`**. Cold start settles in under two seconds on a recent laptop (median 1.86 s in a point-in-time M5/Chrome capture — [docs/PERFORMANCE.md](docs/PERFORMANCE.md); a comparison baseline, not a hardware requirement). A first-run card offers to stage a mission for you — **Sites** or explore manually.
 
 > [!TIP]
 > **Not a coder? Have an AI do this whole page for you.** A one-click installer is in the works — until then, install a coding agent ([Claude Code](https://claude.com/claude-code), [Codex](https://openai.com/codex/), [Cursor](https://cursor.com), or [Antigravity](https://antigravity.google)) and paste this:
@@ -191,11 +190,11 @@ Twenty-eight tools, four jobs — the commands below come straight from the prod
 
 ## 🛰️ What's on the Globe
 
-Thirteen live layers. **Ten of them need nothing at all** — no key, no account, no signup.
+Thirteen live layers in the upstream foundation. **On this Volo property build**, Data Layers only registers Sites, Ancora, Area News, and Traffic — the rest stay in the repo but do not appear or poll (see `src/productProfile.js`).
 
 | Layer | What you get | Source | Auth |
 |-------|--------------|--------|------|
-| 🗺️ **Map Stack** | Google Photorealistic 3D, Bing aerial, OSM | Google / Ion / OSM | 🔴 Google (required) · 🟡 ion for Bing · 🟢 OSM |
+| 🗺️ **Map style** | Google 2D satellite / hybrid (Map Tiles), Streets (OSM), opt-in 3D buildings, Bing when ion present | Google / OSM / Ion | 🔴 Google (required) · 🟢 OSM · 🟡 ion for Bing |
 | ✈️ **Live Flights** | Thousands of live aircraft + route history | OpenSky + adsb.lol | 🟢 (🟡 optional for more polling credits) |
 | 🎖️ **Military Flights** | ADS-B military traffic in amber | adsb.lol | 🟢 |
 | 🚢 **Live Vessels** | Thousands of ships worldwide | AISStream | 🟡 |
