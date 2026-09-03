@@ -7,8 +7,10 @@
  * request interception to fabricate the keyless state deterministically
  * (no key removal needed, no upstream traffic).
  *
- *   (i)   LIVE mode — stats.mode 'live', dots rendered, colored buckets
- *         non-empty (free+slow+jam > 0), coverage > 0, tiles fetched > 0.
+ *   (i)   LIVE mode — stats.mode 'live', dots rendered (>0), colored buckets
+ *         non-empty (free+slow+jam > 0), coverage > 0, tiles fetched > 0;
+ *         detectable positions move across a ~4 s sample; if exposed,
+ *         continuous-render hold includes 'traffic' while enabled.
  *   (ii)  C4 oblique bounds — at 2.5 km / -20° pitch the road-fetch box
  *         center lands within 12 km of the camera (look-at point), never
  *         the pre-fix horizon-biased midpoint (>25 km).
@@ -20,7 +22,8 @@
  *         INCONCLUSIVE rather than a false failure).
  *   (v)   KEYLESS fallback — with /api/tomtom/status intercepted to
  *         {hasKey:false}: mode 'sim', every dot white (buckets.sim ===
- *         count), and ZERO /api/tomtom/flow requests issued.
+ *         count), and ZERO /api/tomtom/flow requests issued; dots > 0 and
+ *         detectable positions move.
  *
  * Visual proof saved to qa-shots/ (gitignored).
  *
@@ -44,6 +47,14 @@ const getOpt = (name, dflt) => {
 };
 const APP_URL = getOpt('--url', 'http://localhost:4410');
 const HEADFUL = argv.includes('--headful');
+
+/** App URL with first-run launcher suppressed (?welcome=0). */
+function appUrlWithWelcomeDismissed(rawUrl) {
+  const url = new URL(rawUrl);
+  url.searchParams.set('welcome', '0');
+  return url.toString();
+}
+const BOOT_URL = appUrlWithWelcomeDismissed(APP_URL);
 
 const CHROME_EXECUTABLE_CANDIDATES = [
   process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -74,6 +85,21 @@ function record(name, ok, detail) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Dismiss first-run UI if it still appears despite ?welcome=0. */
+async function dismissFirstRunUi(page) {
+  await page.evaluate(() => {
+    try {
+      sessionStorage.setItem('gev:first-run-mission-session:v1', 'dismissed');
+    } catch { /* ignore */ }
+    const launcher = document.getElementById('first-run-launcher');
+    if (launcher) {
+      launcher.classList.remove('visible');
+      launcher.setAttribute('hidden', '');
+      launcher.style.display = 'none';
+    }
+  });
+}
+
 /** Enable traffic + teleport, then poll the layer until settled. */
 async function settleTraffic(page, view, { minCount = 1, timeoutS = 30 } = {}) {
   return page.evaluate(async (v, minC, tS) => {
@@ -100,9 +126,54 @@ async function settleTraffic(page, view, { minCount = 1, timeoutS = 30 } = {}) {
   }, view, minCount, timeoutS);
 }
 
+/** Sample detectable traffic dot positions (Cartesian meters). */
+async function sampleDetectablePositions(page, maxCount = 24) {
+  return page.evaluate((max) => {
+    const mod = window.__godsEyeView?.dataManager?.layers?.get('traffic')?.module;
+    if (!mod?.getDetectableObjects) return [];
+    return mod.getDetectableObjects({ maxCount: max }).map((o) => ({
+      id: o.id,
+      x: o.position.x,
+      y: o.position.y,
+      z: o.position.z,
+    }));
+  }, maxCount);
+}
+
+/**
+ * Compare two position samples ~seconds apart; require measurable movement
+ * on at least one shared (or any) detectable object.
+ */
+function positionsMoved(a, b, minMeters = 0.5) {
+  if (!a?.length || !b?.length) return { moved: false, detail: `n0=${a?.length || 0} n1=${b?.length || 0}` };
+  const byId = new Map(b.map((p) => [p.id, p]));
+  let maxDelta = 0;
+  let compared = 0;
+  for (const p0 of a) {
+    const p1 = byId.get(p0.id);
+    if (!p1) continue;
+    compared += 1;
+    const d = Math.hypot(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
+    if (d > maxDelta) maxDelta = d;
+  }
+  // If ids reshuffled, compare by index as a fallback.
+  if (compared === 0) {
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      const d = Math.hypot(b[i].x - a[i].x, b[i].y - a[i].y, b[i].z - a[i].z);
+      if (d > maxDelta) maxDelta = d;
+    }
+    compared = n;
+  }
+  return {
+    moved: maxDelta >= minMeters,
+    detail: `compared=${compared} maxDelta=${maxDelta.toFixed(2)}m (need ≥${minMeters}m)`,
+  };
+}
+
 async function main() {
   console.log('\nTomTom Live-Flow Traffic Proof (qa-traffic)');
-  console.log(`  App URL : ${APP_URL}\n`);
+  console.log(`  App URL : ${BOOT_URL}\n`);
 
   try {
     const res = await fetch(APP_URL);
@@ -146,12 +217,13 @@ async function main() {
       if (t.includes('[Data:Traffic]')) trafficLogs.push(t);
     });
 
-    console.log('Loading app...');
-    await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    console.log('Loading app (first-run dismissed via ?welcome=0)...');
+    await page.goto(BOOT_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForFunction(
       () => window.__godsEyeView?.viewer && window.__godsEyeView?.dataManager,
       { timeout: 60000 },
     );
+    await dismissFirstRunUi(page);
     await sleep(1500);
 
     // ── (i) LIVE mode: San Antonio — fast Overpass extract, partial TomTom
@@ -167,14 +239,38 @@ async function main() {
     {
       const b = mumbai.flowBuckets || {};
       const colored = (b.free || 0) + (b.slow || 0) + (b.jam || 0);
+      const dotsOk = mumbai.count > 0;
       record('LIVE: stats.mode === "live"', mumbai.mode === 'live', `mode=${mumbai.mode}`);
-      record('LIVE: dots rendered', mumbai.count > 0, `count=${mumbai.count}`);
+      record('LIVE: dots rendered (count > 0)', dotsOk, `count=${mumbai.count}`);
       record('LIVE: colored flow dots present (free+slow+jam > 0)', colored > 0,
         `free=${b.free} slow=${b.slow} jam=${b.jam} sim=${b.sim}`);
       record('LIVE: flow coverage > 0 and tiles fetched > 0',
         mumbai.flowCoveragePct > 0 && mumbai.tilesFetched > 0,
         `coverage=${mumbai.flowCoveragePct}% tiles=${mumbai.tilesFetched}`);
-      if (mumbai.mode !== 'live' || !(mumbai.count > 0) || !(colored > 0)) exitCode = 1;
+
+      // Moving dots: sample detectable positions twice ~4 s apart.
+      const sampleA = await sampleDetectablePositions(page);
+      await sleep(4000);
+      const sampleB = await sampleDetectablePositions(page);
+      const move = positionsMoved(sampleA, sampleB);
+      record('LIVE: detectable positions move over ~4 s', move.moved, move.detail);
+
+      // Continuous-render hold — only when the diagnostics seam is exposed.
+      const gov = await page.evaluate(() => {
+        const fn = window.__godsEyeView?.getRenderGovernorDiagnostics;
+        return typeof fn === 'function' ? fn() : null;
+      });
+      if (gov && Array.isArray(gov.holds)) {
+        const held = gov.holds.includes('traffic');
+        record('LIVE: continuous-render hold includes traffic', held,
+          `mode=${gov.mode} holds=${gov.holds.join(',') || '(none)'}`);
+        if (!held) exitCode = 1;
+      } else {
+        record('LIVE: continuous-render hold includes traffic', null,
+          'getRenderGovernorDiagnostics not exposed — skipped');
+      }
+
+      if (mumbai.mode !== 'live' || !dotsOk || !(colored > 0) || !move.moved) exitCode = 1;
       await sleep(1200);
       await page.screenshot({ path: path.join(SHOTS_DIR, 'traffic-live-flow.png') });
     }
@@ -265,11 +361,12 @@ async function main() {
       }
       try { req.continue(); } catch { /* already handled */ }
     });
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.goto(BOOT_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForFunction(
       () => window.__godsEyeView?.viewer && window.__godsEyeView?.dataManager,
       { timeout: 60000 },
     );
+    await dismissFirstRunUi(page);
     await sleep(1500);
     let simStats = await settleTraffic(page, { lon: -98.4936, lat: 29.4241, height: 3000 }, { minCount: 100, timeoutS: 45 });
     if (!simStats || simStats.count === 0) {
@@ -278,8 +375,10 @@ async function main() {
     }
     {
       const b = simStats.flowBuckets || {};
-      const allWhite = simStats.count > 0 && b.sim === simStats.count && !b.free && !b.slow && !b.jam;
+      const dotsOk = simStats.count > 0;
+      const allWhite = dotsOk && b.sim === simStats.count && !b.free && !b.slow && !b.jam;
       record('KEYLESS: stats.mode === "sim"', simStats.mode === 'sim', `mode=${simStats.mode}`);
+      record('KEYLESS: dots rendered (count > 0)', dotsOk, `count=${simStats.count}`);
       record('KEYLESS: every dot is white simulation', allWhite,
         `count=${simStats.count} sim=${b.sim} free=${b.free} slow=${b.slow} jam=${b.jam}`);
       record('KEYLESS: zero flow-tile requests issued', keylessFlowReqs.length === 0,
@@ -290,7 +389,26 @@ async function main() {
         && String(simStats.loadingLabel || '').startsWith('SIMULATED');
       record('KEYLESS: no error, and the label reads SIMULATED', keylessHonest,
         `err=${simStats.error || 'none'} label="${simStats.loadingLabel}"`);
-      if (simStats.mode !== 'sim' || !allWhite || keylessFlowReqs.length !== 0 || !keylessHonest) {
+
+      const sampleA = await sampleDetectablePositions(page);
+      await sleep(4000);
+      const sampleB = await sampleDetectablePositions(page);
+      const move = positionsMoved(sampleA, sampleB);
+      record('KEYLESS: detectable positions move over ~4 s', move.moved, move.detail);
+
+      const gov = await page.evaluate(() => {
+        const fn = window.__godsEyeView?.getRenderGovernorDiagnostics;
+        return typeof fn === 'function' ? fn() : null;
+      });
+      if (gov && Array.isArray(gov.holds)) {
+        const held = gov.holds.includes('traffic');
+        record('KEYLESS: continuous-render hold includes traffic', held,
+          `mode=${gov.mode} holds=${gov.holds.join(',') || '(none)'}`);
+        if (!held) exitCode = 1;
+      }
+
+      if (simStats.mode !== 'sim' || !dotsOk || !allWhite || keylessFlowReqs.length !== 0
+        || !keylessHonest || !move.moved) {
         exitCode = 1;
       }
       await sleep(1000);

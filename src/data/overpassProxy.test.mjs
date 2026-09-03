@@ -5,6 +5,9 @@
 // boundary-class queries (is_in / pivot) get a longer disk TTL — boundaries change
 // ≈never. Pure-function tests, no network.
 //
+// Also covers the 2026-09 Street Traffic outage: overpass-api.de 406 HTML was
+// cached as a "success" (~573 B poison files), so road fetch parsed zero ways.
+//
 // Run with: npm test   (node --test)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,13 +15,23 @@ import {
   simplifyOverpassPayloadBody,
   isOverpassBoundaryQuery,
   resolveOverpassPreflight,
+  isValidOverpassOsmBody,
+  isUsableOverpassCacheEntry,
+  fetchOverpassPayload,
 } from '../../vite.config.js';
 
 test('preflight checks memory, in-flight, then disk before consuming limiter quota', async () => {
   const key = 'normalized query';
-  const fresh = { id: 'memory', cachedAt: 900 };
-  const joined = { id: 'inflight', cachedAt: 950 };
-  const disk = { id: 'disk', cachedAt: 975 };
+  const osmBody = JSON.stringify({ elements: [{ type: 'way', id: 1 }] });
+  const fresh = {
+    id: 'memory', status: 200, body: osmBody, contentType: 'application/json', cachedAt: 900,
+  };
+  const joined = {
+    id: 'inflight', status: 200, body: osmBody, contentType: 'application/json', cachedAt: 950,
+  };
+  const disk = {
+    id: 'disk', status: 200, body: osmBody, contentType: 'application/json', cachedAt: 975,
+  };
   let diskReads = 0;
   let limiterCalls = 0;
   const allowUpstream = () => { limiterCalls += 1; return true; };
@@ -39,7 +52,7 @@ test('preflight checks memory, in-flight, then disk before consuming limiter quo
 
   const inFlightHit = await resolveOverpassPreflight({
     cacheKey: key,
-    memoryCache: new Map([[key, { id: 'stale', cachedAt: 0 }]]),
+    memoryCache: new Map([[key, { id: 'stale', status: 200, body: osmBody, cachedAt: 0 }]]),
     inFlight: new Map([[key, Promise.resolve(joined)]]),
     readDisk: async () => { diskReads += 1; return disk; },
     allowUpstream,
@@ -199,3 +212,162 @@ function pointSegDistDeg(p, a, b) {
   const t = c1 / c2;
   return Math.hypot(wx - t * vx, wy - t * vy);
 }
+
+// ── Poison-cache / 406 fallthrough (Street Traffic outage fix) ───────────────
+
+/** ~573-byte-class HTML error page like overpass-api.de 406 responses. */
+const POISON_406_HTML = `<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>406 Not Acceptable</title>
+</head><body>
+<h1>Not Acceptable</h1>
+<p>An appropriate representation of the requested resource could not be found on this server.</p>
+</body></html>
+`;
+
+const VALID_OSM_JSON = JSON.stringify({
+  version: 0.6,
+  generator: 'Overpass API',
+  elements: [
+    {
+      type: 'way',
+      id: 1,
+      tags: { highway: 'residential' },
+      geometry: [{ lat: 29.42, lon: -98.49 }, { lat: 29.421, lon: -98.491 }],
+    },
+  ],
+});
+
+function mockResponse(status, body, contentType = 'text/html') {
+  return {
+    status,
+    headers: { get: (name) => (name.toLowerCase() === 'content-type' ? contentType : null) },
+    // No body.getReader — readResponseTextCapped falls back to .text().
+    text: async () => body,
+  };
+}
+
+test('isValidOverpassOsmBody accepts OSM JSON and rejects HTML/error bodies', () => {
+  assert.equal(isValidOverpassOsmBody(VALID_OSM_JSON), true);
+  assert.equal(isValidOverpassOsmBody(JSON.stringify({ elements: [] })), true);
+  assert.equal(isValidOverpassOsmBody(POISON_406_HTML), false);
+  assert.equal(isValidOverpassOsmBody('<html>rate limited</html>'), false);
+  assert.equal(isValidOverpassOsmBody('{not json'), false);
+  assert.equal(isValidOverpassOsmBody(JSON.stringify({ error: 'nope' })), false);
+  assert.equal(isValidOverpassOsmBody(''), false);
+});
+
+test('isUsableOverpassCacheEntry rejects 406/HTML poison and non-2xx', () => {
+  assert.equal(isUsableOverpassCacheEntry({
+    status: 200, body: VALID_OSM_JSON, cachedAt: Date.now(),
+  }), true);
+  assert.equal(isUsableOverpassCacheEntry({
+    status: 406, body: POISON_406_HTML, cachedAt: Date.now(),
+  }), false);
+  assert.equal(isUsableOverpassCacheEntry({
+    status: 200, body: POISON_406_HTML, cachedAt: Date.now(),
+  }), false);
+  assert.equal(isUsableOverpassCacheEntry({
+    status: 429, body: 'rate_limited', rateLimited: true, cachedAt: Date.now(),
+  }), false);
+});
+
+test('406 HTML falls through to the next Overpass mirror', async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    if (url.includes('overpass-api.de')) {
+      return mockResponse(406, POISON_406_HTML, 'text/html');
+    }
+    return mockResponse(200, VALID_OSM_JSON, 'application/json');
+  };
+  const payload = await fetchOverpassPayload('data=test', 1_000_000, {
+    fetchImpl,
+    upstreams: [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+    ],
+  });
+  assert.equal(calls.length, 2, 'must try the second mirror after 406');
+  assert.equal(payload.status, 200);
+  assert.equal(payload.endpoint, 'https://overpass.kumi.systems/api/interpreter');
+  assert.equal(isValidOverpassOsmBody(payload.body), true);
+  assert.match(payload.body, /"elements"/);
+});
+
+test('HTML / non-OSM bodies are never accepted as a successful mirror response', async () => {
+  const fetchImpl = async () => mockResponse(200, POISON_406_HTML, 'text/html');
+  await assert.rejects(
+    () => fetchOverpassPayload('data=test', 1_000_000, {
+      fetchImpl,
+      upstreams: ['https://mirror.example/api/interpreter'],
+    }),
+    /non-OSM|All Overpass/,
+  );
+});
+
+test('poisoned memory cache entry is not served — falls through to upstream', async () => {
+  const key = 'poisoned highway query';
+  const poison = {
+    status: 406,
+    body: POISON_406_HTML,
+    contentType: 'text/html',
+    endpoint: 'https://overpass-api.de/api/interpreter',
+    cachedAt: Date.now(),
+  };
+  const memoryCache = new Map([[key, poison]]);
+  let limiterCalls = 0;
+  const result = await resolveOverpassPreflight({
+    cacheKey: key,
+    memoryCache,
+    inFlight: new Map(),
+    readDisk: async () => null,
+    allowUpstream: () => { limiterCalls += 1; return true; },
+    now: Date.now(),
+    cacheMs: 86_400_000,
+  });
+  assert.equal(result.source, 'UPSTREAM');
+  assert.equal(memoryCache.has(key), false, 'poison entry must be deleted from memory');
+  assert.equal(limiterCalls, 1);
+});
+
+test('poisoned disk-shaped payload is not served as a DISK hit', async () => {
+  const key = 'disk poison';
+  const poison = {
+    status: 406,
+    body: POISON_406_HTML,
+    contentType: 'text/html',
+    endpoint: 'https://overpass-api.de/api/interpreter',
+    cachedAt: Date.now(),
+  };
+  const result = await resolveOverpassPreflight({
+    cacheKey: key,
+    memoryCache: new Map(),
+    inFlight: new Map(),
+    readDisk: async () => poison,
+    allowUpstream: () => true,
+  });
+  assert.equal(result.source, 'UPSTREAM', 'invalid disk stub must not become a DISK hit');
+});
+
+test('valid OSM cache entry still hits memory preflight', async () => {
+  const key = 'good roads';
+  const good = {
+    status: 200,
+    body: VALID_OSM_JSON,
+    contentType: 'application/json',
+    endpoint: 'https://overpass.kumi.systems/api/interpreter',
+    cachedAt: Date.now() - 1000,
+  };
+  const result = await resolveOverpassPreflight({
+    cacheKey: key,
+    memoryCache: new Map([[key, good]]),
+    inFlight: new Map(),
+    readDisk: async () => null,
+    allowUpstream: () => true,
+    now: Date.now(),
+    cacheMs: 86_400_000,
+  });
+  assert.equal(result.source, 'HIT');
+  assert.equal(result.payload, good);
+});
