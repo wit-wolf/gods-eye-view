@@ -5,6 +5,16 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ## [Unreleased] — 2026-09-03
 
+### Fixed
+
+- **Live Street Traffic visible on the property globe:** TomTom flow heat-lines
+  no longer classify only onto Photorealistic 3D tiles. With 3D buildings off
+  (the Volo default) they drape the globe/terrain on Satellite, Streets, and
+  Satellite + labels, and reclassify onto 3D tiles when buildings are turned
+  on. Default jamViz is `both` (congestion-colored road overlay + dots),
+  including free-flow green corridors so live traffic reads as roads on the
+  map—not density specks alone. Simulated / keyless labeling unchanged.
+
 ### Changed
 
 - **Property Data Layers only:** cut Earthquakes, FIRMS / Active fires, Dams,

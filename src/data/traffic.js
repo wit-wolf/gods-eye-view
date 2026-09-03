@@ -13,22 +13,35 @@ import {
 import { queuePlatoons, locateAlongRoad } from './trafficQueue.js';
 import { registerDynamicCredit, TOMTOM_CREDIT } from './dataCredits.js';
 import { holdContinuousRender, releaseContinuousRender } from '../renderGovernor.js';
+import {
+  trafficClassificationTypeForScene,
+  trafficClassificationTypeForStack,
+} from './trafficOverlayClassification.js';
+
+export {
+  trafficClassificationTypeForScene,
+  trafficClassificationTypeForStack,
+} from './trafficOverlayClassification.js';
 
 /**
- * @file Street Traffic — animated dots along OSM road polylines, colored by
- * live TomTom congestion when a key is configured.
+ * @file Street Traffic — TomTom live flow road overlay + animated dots along
+ * OSM polylines when a key is configured.
  *
- * Road geometry: OSM Overpass API (free, no auth). Fetches road polylines for
- * the camera viewport, spawns PointPrimitives that lerp along pre-computed
- * Cartesian3 waypoints. Camera-gated: only active below ~8 km altitude.
+ * Road geometry: OSM Overpass API (free, no auth). Live mode fetches TomTom
+ * relative-flow vector tiles via `/api/tomtom/flow/...`, matches them onto
+ * roads, and paints congestion-colored GroundPolyline heat-lines (free/slow/
+ * jam) draped on the active Map style surface, with optional PointPrimitive
+ * dots on top. Camera-gated: only active below ~8 km altitude.
  *
  * Two modes (decided once per session via `/api/tomtom/status`):
  *  - `sim` (keyless default): white dots at hardcoded per-road-class speeds —
- *    the original simulation, byte-identical behavior.
- *  - `live`: TomTom flow tiles (`flowTiles.js`) are matched onto the same
- *    Overpass roads (`flowMatch.js`); matched roads color/slow/densify their
- *    dots by real congestion (`trafficFlowStyle.js`), closed roads spawn no
- *    dots, and unmatched roads keep the simulated white.
+ *    labeled Traffic (simulated); never claims live.
+ *  - `live`: TomTom flow tiles (`flowTiles.js`) matched onto Overpass roads
+ *    (`flowMatch.js`); heat-lines + colored dots by real congestion.
+ *
+ * Heat-line classification follows Map style: TERRAIN on the shown globe
+ * (Satellite / Streets / Hybrid), CESIUM_3D_TILE when Photorealistic 3D
+ * buildings hide the globe. Map stack imagery swaps do not remove the overlay.
  *
  * Architecture overview:
  *  - Camera-change listener triggers debounced road fetching per viewport tile.
@@ -113,20 +126,24 @@ const FLOW_BUCKET_COLORS = {
 };
 
 // ─── Jam-viz prototype (live mode only — see 2026-07-21 design doc) ────────
-/** @const {number} Max congestion heat-line polylines per render (jam first). */
-const HEAT_LINE_CAP = 400;
+/** @const {number} Max flow heat-line polylines per render (jam → slow → free). */
+const HEAT_LINE_CAP = 800;
 /** @const {number} Px — glowing jam corridor line width. */
 const HEAT_LINE_JAM_WIDTH = 9;
 /** @const {number} Px — flat slow corridor line width. */
-const HEAT_LINE_SLOW_WIDTH = 4;
+const HEAT_LINE_SLOW_WIDTH = 5;
+/** @const {number} Px — free-flow corridor line width (reads as traffic roads). */
+const HEAT_LINE_FREE_WIDTH = 3;
 /** @const {number} Jam heat-line alpha midpoint (pulse oscillates around it). */
 const HEAT_JAM_BASE_ALPHA = 0.55;
 /** @const {number} Jam heat-line pulse amplitude (±, ~1.6 s period). */
 const HEAT_JAM_PULSE_ALPHA = 0.2;
 /** @const {Cesium.Color} Jam corridor color (bucket red, alpha pulsed live). */
 const HEAT_JAM_COLOR = Cesium.Color.fromCssColorString('#e05252');
-/** @const {Cesium.Color} Slow corridor color (bucket amber, faint + static). */
-const HEAT_SLOW_COLOR = Cesium.Color.fromCssColorString('#f0b23e').withAlpha(0.2);
+/** @const {Cesium.Color} Slow corridor color (bucket amber). */
+const HEAT_SLOW_COLOR = Cesium.Color.fromCssColorString('#f0b23e').withAlpha(0.55);
+/** @const {Cesium.Color} Free-flow corridor color (bucket green). */
+const HEAT_FREE_COLOR = Cesium.Color.fromCssColorString('#2ecc71').withAlpha(0.5);
 /**
  * @const {number} Meters — jam dots depth-test-punch through the 3D tiles out
  * to this camera distance so queues stay visible at city scale. The single
@@ -219,31 +236,44 @@ let _closedRoads = 0;
 /** @type {'sim'|'hide'} Live-mode treatment of roads without flow data. */
 let _uncoveredMode = 'sim';
 /**
- * Jam-viz prototype mode: 'density' = deep-jam density boost + platoon queues
- * + stop-and-go creep; 'heatline' = congestion corridor polylines; 'both';
- * 'none' = shipped main behavior. Live mode only — the keyless simulation
- * never has `road.flow`, so every jamViz path is unreachable there.
- * Default 'density' — A/B verdict 2026-07-23 (heatline stays available
- * via setParams).
+ * Jam-viz mode: 'density' = deep-jam density boost + platoon queues + creep;
+ * 'heatline' = TomTom flow road polylines (free/slow/jam); 'both' = overlay
+ * plus dots; 'none' = dots without jam density boost. Live mode only — the
+ * keyless simulation never has `road.flow`, so heat-lines stay off there.
+ * Default 'both' — property globe (opaque satellite, 3D tiles off) needs a
+ * real road overlay, not density dots alone.
  * @type {'none'|'density'|'heatline'|'both'}
  */
-let _jamViz = 'density';
+let _jamViz = 'both';
 /**
- * Congestion heat-lines are GroundPolylinePrimitive batches draped onto the
- * rendered 3D tiles (ClassificationType.CESIUM_3D_TILE) — polylines at the
- * dots' single-sample heights depth-fail under the mesh across an oblique
- * city view (first A/B capture: 198 lines rendered, zero visible). One
- * primitive per bucket so the jam batch can pulse via a single shared
- * material uniform.
+ * Live TomTom flow heat-lines are GroundPolylinePrimitive batches draped onto
+ * the active surface: TERRAIN when the Cesium globe + basemap imagery are
+ * shown (Satellite / Streets / Hybrid), CESIUM_3D_TILE when Photorealistic
+ * 3D buildings hide the globe. Classifying only onto 3D tiles made the
+ * overlay invisible after the property Map style default (tiles off).
+ * One primitive per bucket so the jam batch can pulse via a shared material.
  * @type {Cesium.GroundPolylinePrimitive|null}
  */
 let _heatJamPrim = null;
 /** @type {Cesium.GroundPolylinePrimitive|null} Slow-bucket heat-line batch. */
 let _heatSlowPrim = null;
+/** @type {Cesium.GroundPolylinePrimitive|null} Free-flow heat-line batch. */
+let _heatFreePrim = null;
 /** @type {number} Heat-lines in the current render (stats). */
 let _heatLineCount = 0;
 /** @type {boolean|null} GroundPolylinePrimitive.isSupported, checked once. */
 let _heatSupported = null;
+/**
+ * Active heat-line classification — kept in sync with Map style stack changes.
+ * @type {Cesium.ClassificationType}
+ */
+let _heatClassification = Cesium.ClassificationType.BOTH;
+/** @type {string|null} Last Map style stack id (null until first stack event / scene probe). */
+let _heatStackId = null;
+/** @type {Function|null} gev:map-stack-changed listener (reclassify overlay). */
+let _mapStackListener = null;
+/** @type {EventTarget|null} */
+let _mapStackEventTarget = null;
 /** @type {number} Altitude of the last render, for late-flow heat rebuilds. */
 let _lastRenderAltitude = 0;
 /**
@@ -1492,7 +1522,7 @@ function visibleRoadsForAltitude(roads, altitude) {
     : roads;
 }
 
-/** Remove both heat-line ground primitives from the scene. */
+/** Remove heat-line ground primitives from the scene. */
 function removeHeatLines() {
   if (_heatJamPrim) {
     _viewer?.scene.groundPrimitives.remove(_heatJamPrim);
@@ -1502,17 +1532,75 @@ function removeHeatLines() {
     _viewer?.scene.groundPrimitives.remove(_heatSlowPrim);
     _heatSlowPrim = null;
   }
+  if (_heatFreePrim) {
+    _viewer?.scene.groundPrimitives.remove(_heatFreePrim);
+    _heatFreePrim = null;
+  }
   _heatLineCount = 0;
 }
 
 /**
- * Rebuild the congestion heat-line underlay (jam-viz heatline prototype):
- * slow/jam roads drape a corridor line onto the rendered 3D tiles — glowing
- * pulsing red for jam, faint flat amber for slow — with the dots animating
- * on top. Two batched GroundPolylinePrimitives (one per bucket) so the jam
- * batch pulses through one shared material. Capped at HEAT_LINE_CAP (jam
- * first, longest first); overflow is logged. No-op in sim mode, when the
- * heatline mode is off, or without ground-primitive support.
+ * Apply classification to existing heat-line primitives (Map style change).
+ * Does not rebuild geometry — Satellite ↔ Streets stay TERRAIN; photoreal
+ * flips to CESIUM_3D_TILE and back.
+ * @param {Cesium.ClassificationType} next
+ */
+function applyHeatClassification(next) {
+  if (next === undefined || next === _heatClassification) return;
+  _heatClassification = next;
+  if (_heatJamPrim) _heatJamPrim.classificationType = next;
+  if (_heatSlowPrim) _heatSlowPrim.classificationType = next;
+  if (_heatFreePrim) _heatFreePrim.classificationType = next;
+}
+
+/**
+ * Resolve classification from a map-stack event or live scene, then apply.
+ * @param {string|null|undefined} activeId
+ */
+function syncHeatClassificationFromStack(activeId) {
+  if (typeof activeId === 'string' && activeId) {
+    _heatStackId = activeId;
+  }
+  const next = _heatStackId
+    ? trafficClassificationTypeForStack(_heatStackId)
+    : trafficClassificationTypeForScene(_viewer?.scene);
+  applyHeatClassification(next);
+}
+
+/**
+ * Bucket priority for heat-line cap: jam first (must stay visible), then
+ * slow, then free — so the green road overlay fills remaining slots.
+ * @param {'free'|'slow'|'jam'} bucket
+ * @returns {number}
+ */
+function heatBucketRank(bucket) {
+  if (bucket === 'jam') return 0;
+  if (bucket === 'slow') return 1;
+  return 2;
+}
+
+/**
+ * Current classification for new heat-line primitives.
+ * Prefer last Map style id; else derive from globe.show (photoreal hides globe).
+ * @returns {Cesium.ClassificationType}
+ */
+function resolveHeatClassification() {
+  if (_heatStackId) {
+    _heatClassification = trafficClassificationTypeForStack(_heatStackId);
+  } else {
+    _heatClassification = trafficClassificationTypeForScene(_viewer?.scene);
+  }
+  return _heatClassification;
+}
+
+/**
+ * Rebuild the TomTom flow road overlay (heat-lines): free/slow/jam roads
+ * drape colored corridors onto the active globe or 3D-tile surface — green
+ * free, amber slow, pulsing red jam — with optional density dots on top.
+ * Three batched GroundPolylinePrimitives (one per bucket) so the jam batch
+ * pulses through one shared material. Capped at HEAT_LINE_CAP (jam → slow
+ * → free, longest first within bucket). No-op in sim mode, when heatline
+ * mode is off, or without ground-primitive support.
  *
  * @param {Array} roads - Road objects visible in the current render.
  */
@@ -1525,19 +1613,21 @@ function rebuildHeatLines(roads) {
   }
   if (!_heatSupported) return;
 
+  const classification = resolveHeatClassification();
+
   const candidates = [];
   for (const road of roads) {
     const flow = road.flow;
     if (!flow || flow.closure) continue;
     const bucket = flowBucket(flow.level);
-    if (bucket === 'free') continue;
     let len = 0;
     for (const d of road.segmentDist) len += d;
     candidates.push({ road, bucket, len });
   }
-  candidates.sort((a, b) => (a.bucket === b.bucket
-    ? b.len - a.len
-    : (a.bucket === 'jam' ? -1 : 1)));
+  candidates.sort((a, b) => {
+    const rank = heatBucketRank(a.bucket) - heatBucketRank(b.bucket);
+    return rank !== 0 ? rank : b.len - a.len;
+  });
   const kept = candidates.slice(0, HEAT_LINE_CAP);
 
   const instancesFor = (bucket, width) => kept
@@ -1547,18 +1637,21 @@ function rebuildHeatLines(roads) {
     }));
 
   // Mono presets (NVG/FLIR/noir) discard hue — heat-lines re-encode in
-  // luminance like the dots: jam = white glow, slow = faint gray.
+  // luminance like the dots: jam = white glow, slow = mid gray, free = dark.
   const monoHeat = _presetDots === 'on' && trafficStyleProfile(_stylePreset) === 'mono';
   const jamLineColor = monoHeat ? Cesium.Color.WHITE : HEAT_JAM_COLOR;
   const slowLineColor = monoHeat
     ? new Cesium.Color(0.7, 0.7, 0.7, HEAT_SLOW_COLOR.alpha)
     : HEAT_SLOW_COLOR;
+  const freeLineColor = monoHeat
+    ? new Cesium.Color(0.45, 0.45, 0.45, HEAT_FREE_COLOR.alpha)
+    : HEAT_FREE_COLOR;
 
   const jamInstances = instancesFor('jam', HEAT_LINE_JAM_WIDTH);
   if (jamInstances.length) {
     _heatJamPrim = _viewer.scene.groundPrimitives.add(new Cesium.GroundPolylinePrimitive({
       geometryInstances: jamInstances,
-      classificationType: Cesium.ClassificationType.CESIUM_3D_TILE,
+      classificationType: classification,
       appearance: new Cesium.PolylineMaterialAppearance({
         material: Cesium.Material.fromType('PolylineGlow', {
           color: jamLineColor.withAlpha(HEAT_JAM_BASE_ALPHA),
@@ -1571,16 +1664,26 @@ function rebuildHeatLines(roads) {
   if (slowInstances.length) {
     _heatSlowPrim = _viewer.scene.groundPrimitives.add(new Cesium.GroundPolylinePrimitive({
       geometryInstances: slowInstances,
-      classificationType: Cesium.ClassificationType.CESIUM_3D_TILE,
+      classificationType: classification,
       appearance: new Cesium.PolylineMaterialAppearance({
         material: Cesium.Material.fromType('Color', { color: slowLineColor }),
+      }),
+    }));
+  }
+  const freeInstances = instancesFor('free', HEAT_LINE_FREE_WIDTH);
+  if (freeInstances.length) {
+    _heatFreePrim = _viewer.scene.groundPrimitives.add(new Cesium.GroundPolylinePrimitive({
+      geometryInstances: freeInstances,
+      classificationType: classification,
+      appearance: new Cesium.PolylineMaterialAppearance({
+        material: Cesium.Material.fromType('Color', { color: freeLineColor }),
       }),
     }));
   }
 
   _heatLineCount = kept.length;
   if (candidates.length > kept.length) {
-    console.log(`[Data:Traffic] Heat-lines capped at ${HEAT_LINE_CAP} (${candidates.length} congested roads in view)`);
+    console.log(`[Data:Traffic] Heat-lines capped at ${HEAT_LINE_CAP} (${candidates.length} flow roads in view)`);
   }
 }
 
@@ -2230,7 +2333,20 @@ const trafficLayer = {
         window.addEventListener('gev:style-change', (e) => setStylePreset(e?.detail?.style));
         _styleListenerBound = true;
       }
+      // Map style stack drives heat-line classification (globe vs 3D tiles).
+      // Boot silent setStack fires no event — resolveHeatClassification()
+      // probes globe.show until the first ready event arrives.
+      _mapStackEventTarget = window;
+      if (!_mapStackListener) {
+        _mapStackListener = (event) => {
+          const status = event?.detail?.status;
+          if (status && status !== 'ready' && status !== 'error') return;
+          syncHeatClassificationFromStack(event?.detail?.activeId);
+        };
+        window.addEventListener('gev:map-stack-changed', _mapStackListener);
+      }
     }
+    _heatClassification = trafficClassificationTypeForScene(viewer?.scene);
     refreshBucketColors();
     // Probe TomTom early so the Data Layers title is honest before enable.
     ensureFlowStatus();
@@ -2451,6 +2567,13 @@ const trafficLayer = {
       _pointCollection = null;
     }
     removeHeatLines();
+    if (_mapStackListener && _mapStackEventTarget?.removeEventListener) {
+      _mapStackEventTarget.removeEventListener('gev:map-stack-changed', _mapStackListener);
+      _mapStackListener = null;
+      _mapStackEventTarget = null;
+    }
+    _heatStackId = null;
+    _heatClassification = Cesium.ClassificationType.BOTH;
     _tileCache.clear();
     resetFlowTileCache();
     _count = 0;
