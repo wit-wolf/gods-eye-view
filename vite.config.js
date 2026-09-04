@@ -297,16 +297,71 @@ function overpassDiskPath(cacheKey) {
 }
 
 /**
+ * Whether a raw Overpass response body is valid OSM/Overpass JSON worth
+ * caching or serving. Rejects HTML error pages (e.g. HTTP 406 from
+ * overpass-api.de) and other non-OSM payloads that previously poisoned the
+ * disk/memory cache and left Street Traffic with zero roads.
+ *
+ * @param {string} bodyText
+ * @returns {boolean}
+ */
+export function isValidOverpassOsmBody(bodyText) {
+  if (typeof bodyText !== 'string') return false;
+  const trimmed = bodyText.trim();
+  if (!trimmed || trimmed.length < 2) return false;
+  // Fast reject: HTML / nginx / Cloudflare error pages (poison caches are
+  // often ~573 bytes of 406 HTML).
+  const head = trimmed.slice(0, 64).toLowerCase();
+  if (head.startsWith('<!doctype') || head.startsWith('<html') || head.startsWith('<head')) {
+    return false;
+  }
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return false;
+  let data;
+  try {
+    data = JSON.parse(trimmed);
+  } catch {
+    return false;
+  }
+  // Canonical Overpass interpreter JSON: { elements: [...] }. Also accept a
+  // bare elements array if a mirror ever returns one.
+  if (Array.isArray(data)) return true;
+  if (data && typeof data === 'object' && Array.isArray(data.elements)) return true;
+  return false;
+}
+
+/**
+ * Whether a cached Overpass proxy entry (memory or disk wrapper) is safe to
+ * serve. Invalidates poisoned entries that stored HTTP-error HTML as "success".
+ *
+ * @param {?{status?:number,body?:string,rateLimited?:boolean,runtimeError?:boolean}} entry
+ * @returns {boolean}
+ */
+export function isUsableOverpassCacheEntry(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  if (entry.rateLimited || entry.runtimeError) return false;
+  const status = entry.status;
+  if (Number.isFinite(status) && (status < 200 || status >= 300)) return false;
+  return isValidOverpassOsmBody(entry.body);
+}
+
+/**
  * Read a disk-cached Overpass payload. maxAgeMs Infinity = any age (the
  * serve-stale path when every mirror is down).
+ * Poisoned entries (HTML / non-2xx / non-OSM JSON) are ignored and unlinked.
  * @returns {Promise<?Object>} Payload with cachedAt, or null.
  */
 async function readOverpassDisk(cacheKey, maxAgeMs) {
+  const diskPath = overpassDiskPath(cacheKey);
   try {
-    const raw = await fsp.readFile(overpassDiskPath(cacheKey), 'utf8');
+    const raw = await fsp.readFile(diskPath, 'utf8');
     const payload = JSON.parse(raw);
     if (!payload || typeof payload.body !== 'string' || !Number.isFinite(payload.cachedAt)) return null;
     if (Date.now() - payload.cachedAt > maxAgeMs) return null;
+    if (!isUsableOverpassCacheEntry(payload)) {
+      // Existing poison files (~573 B of 406 HTML) must not be served again.
+      fsp.unlink(diskPath).catch(() => {});
+      return null;
+    }
     return payload;
   } catch {
     return null;
@@ -315,6 +370,7 @@ async function readOverpassDisk(cacheKey, maxAgeMs) {
 
 /** Fire-and-forget disk write for a successful Overpass payload. */
 function writeOverpassDisk(cacheKey, payload) {
+  if (!isUsableOverpassCacheEntry(payload)) return;
   fsp.mkdir(OVERPASS_DISK_DIR, { recursive: true })
     .then(() => fsp.writeFile(overpassDiskPath(cacheKey), JSON.stringify(payload)))
     .catch((err) => console.warn('[Overpass Proxy] disk cache write failed:', err?.message || err));
@@ -346,13 +402,21 @@ export async function resolveOverpassPreflight({
   cacheMs = OVERPASS_CACHE_MS,
 }) {
   const cached = memoryCache.get(cacheKey);
-  if (cached && now - cached.cachedAt <= cacheMs) return { source: 'HIT', payload: cached };
+  if (cached && now - cached.cachedAt <= cacheMs) {
+    if (isUsableOverpassCacheEntry(cached)) return { source: 'HIT', payload: cached };
+    // Poisoned memory entry (e.g. cached 406 HTML) — drop and fall through.
+    memoryCache.delete(cacheKey);
+  }
 
   const pending = inFlight.get(cacheKey);
   if (pending) return { source: 'INFLIGHT', payload: await pending };
 
   const disk = await readDisk();
-  if (disk) return { source: 'DISK', payload: disk };
+  if (disk) {
+    if (isUsableOverpassCacheEntry(disk)) return { source: 'DISK', payload: disk };
+    // readOverpassDisk already unlinks poison; defensive skip if a test stub
+    // returns an invalid entry without filtering.
+  }
 
   return allowUpstream()
     ? { source: 'UPSTREAM', payload: null }
@@ -3012,24 +3076,32 @@ function sendOverpassResponse(res, payload, cacheStatus = 'MISS') {
 /**
  * Try each Overpass upstream in order until one succeeds.
  *
- * Skips rate-limited or 5xx responses and falls through to the next
- * mirror. If all mirrors fail, returns the last rate-limited payload
+ * Skips rate-limited responses, any non-2xx HTTP status (including 406),
+ * runtime-error bodies, and non-OSM/HTML payloads, then falls through to the
+ * next mirror. If all mirrors fail, returns the last rate-limited payload
  * (if any) or throws the last error.
  *
  * @param {string} body - URL-encoded Overpass QL query body.
  * @param {number} [maxResponseBytes] Endpoint-specific response cap.
+ * @param {object} [options]
+ * @param {typeof fetch} [options.fetchImpl]
+ * @param {string[]} [options.upstreams]
  * @returns {Promise<{status:number,body:string,contentType:string,endpoint:string,rateLimited:boolean}>}
  */
-async function fetchOverpassPayload(body, maxResponseBytes = OVERPASS_MAX_RESPONSE_BYTES) {
+export async function fetchOverpassPayload(
+  body,
+  maxResponseBytes = OVERPASS_MAX_RESPONSE_BYTES,
+  { fetchImpl = fetch, upstreams = OVERPASS_UPSTREAMS } = {},
+) {
   let lastError = null;
   let lastRateLimitPayload = null;
 
-  for (const endpoint of OVERPASS_UPSTREAMS) {
+  for (const endpoint of upstreams) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
 
     try {
-      const upstream = await fetch(endpoint, {
+      const upstream = await fetchImpl(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -3063,8 +3135,16 @@ async function fetchOverpassPayload(body, maxResponseBytes = OVERPASS_MAX_RESPON
         lastError = new Error(`Overpass runtime error (${endpoint})`);
         continue;
       }
-      if (status >= 500) {
+      // Any non-2xx (406 Not Acceptable HTML from overpass-api.de, 5xx, etc.)
+      // is a failed mirror — never treat as success or cache.
+      if (status < 200 || status >= 300) {
         lastError = new Error(`Overpass upstream returned ${status} (${endpoint})`);
+        continue;
+      }
+      // Validate OSM/Overpass JSON before accepting. HTML error bodies that
+      // somehow arrive with 200 must not poison the cache or the client.
+      if (!isValidOverpassOsmBody(responseBody)) {
+        lastError = new Error(`Overpass upstream returned non-OSM payload (${endpoint})`);
         continue;
       }
 
@@ -3172,7 +3252,9 @@ function overpassProxy() {
           _overpassConcurrent += 1;
           const requestPromise = fetchOverpassPayload(safeBody)
             .then((payload) => {
-              if (payload.status < 500 && !payload.rateLimited && !payload.runtimeError) {
+              // Only cache usable OSM JSON (2xx + valid body). Never cache
+              // rate-limits, runtime errors, or HTML/error pages.
+              if (isUsableOverpassCacheEntry(payload)) {
                 const entry = { ...payload, cachedAt: Date.now() };
                 _overpassCache.set(cacheKey, entry);
                 trimOverpassCache();
@@ -3187,11 +3269,15 @@ function overpassProxy() {
 
           _overpassInFlight.set(cacheKey, requestPromise);
           const payload = await requestPromise;
-          // Degraded upstream (rate-limited on every mirror / 5xx / runtime
-          // error): last-good roads beat an empty layer — serve stale from
-          // memory or disk at ANY age before surfacing the failure.
-          if (payload.rateLimited || payload.runtimeError || payload.status >= 500) {
-            const stale = _overpassCache.get(cacheKey) || await readOverpassDisk(cacheKey, Infinity);
+          // Degraded upstream (rate-limited on every mirror / non-success /
+          // runtime error): last-good roads beat an empty layer — serve stale
+          // from memory or disk at ANY age before surfacing the failure.
+          // Poisoned cache entries are filtered by isUsableOverpassCacheEntry /
+          // readOverpassDisk and never returned here.
+          if (payload.rateLimited || payload.runtimeError || !isUsableOverpassCacheEntry(payload)) {
+            const staleMem = _overpassCache.get(cacheKey);
+            const stale = (staleMem && isUsableOverpassCacheEntry(staleMem) ? staleMem : null)
+              || await readOverpassDisk(cacheKey, Infinity);
             if (stale) {
               sendOverpassResponse(res, stale, 'STALE');
               return;
@@ -3200,8 +3286,10 @@ function overpassProxy() {
           sendOverpassResponse(res, payload, 'MISS');
         } catch (e) {
           // Every mirror threw (network-level). Same serve-stale rule.
+          const staleMem = cacheKey ? _overpassCache.get(cacheKey) : null;
           const stale = cacheKey
-            ? (_overpassCache.get(cacheKey) || await readOverpassDisk(cacheKey, Infinity).catch(() => null))
+            ? ((staleMem && isUsableOverpassCacheEntry(staleMem) ? staleMem : null)
+              || await readOverpassDisk(cacheKey, Infinity).catch(() => null))
             : null;
           if (stale) {
             sendOverpassResponse(res, stale, 'STALE');

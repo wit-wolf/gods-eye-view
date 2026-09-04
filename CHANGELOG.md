@@ -7,6 +7,13 @@ of current runtime behavior, see [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md
 
 ### Fixed
 
+- **Street Traffic zero-dots outage (Overpass poison cache):** the Vite
+  `/api/overpass` proxy treated HTTP 406 HTML from overpass-api.de as a
+  successful response and cached it (~573 B poison files). Road fetch then
+  parsed zero ways, so live TomTom (key + flow PBF OK) still spawned no
+  moving dots. Non-2xx responses (including 406; 429 already handled) now
+  fall through to the next mirror; only valid Overpass OSM JSON is cached
+  or served; poisoned disk/memory entries are ignored on read.
 - **Live Street Traffic visible on the property globe:** TomTom flow heat-lines
   no longer classify only onto Photorealistic 3D tiles. With 3D buildings off
   (the Volo default) they drape the globe/terrain on Satellite, Streets, and
