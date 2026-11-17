@@ -3,7 +3,10 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatCompetitorListHtml } from './siteResearch.js';
+import {
+  formatCompetitorListHtml,
+  retailContextSourceLabel,
+} from './siteResearch.js';
 
 describe('formatCompetitorListHtml', () => {
   it('renders name + distance rows', () => {
@@ -19,5 +22,22 @@ describe('formatCompetitorListHtml', () => {
 
   it('returns empty string for no places', () => {
     assert.equal(formatCompetitorListHtml([], 8, (v) => v), '');
+  });
+});
+
+describe('retailContextSourceLabel', () => {
+  it('labels TomTom and optional OSM honestly', () => {
+    assert.match(
+      retailContextSourceLabel({ source: 'tomtom', osmUsed: true }),
+      /TomTom Places Search/,
+    );
+    assert.match(
+      retailContextSourceLabel({ source: 'tomtom', osmUsed: true }),
+      /OSM shop=mall/,
+    );
+    assert.match(
+      retailContextSourceLabel({ source: 'google', fallbackNote: ' (fallback)' }),
+      /Google Places/,
+    );
   });
 });

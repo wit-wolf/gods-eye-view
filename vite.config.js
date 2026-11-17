@@ -1829,8 +1829,10 @@ function rocketLaunchesProxy() {
  * GET /api/tomtom/reverse-geocode?lat=&lon= → Search reverseGeocode (Sites
  * pin locality). Same non-tile budget + 6 h cache.
  *
- * GET /api/tomtom/nearby-poi?lat=&lon=&radius= → Search nearbySearch retail
- * category set (Sites competitor ring). Same non-tile budget + 6 h cache.
+ * GET /api/tomtom/nearby-poi?lat=&lon=&radius=&profile= → Search nearbySearch
+ * (Sites retail context). profile=retail|centres|stores (allowlisted). Limit
+ * 100 with one optional ofs page for stores — honest counts, no silent 20-cap.
+ * Same non-tile budget + 6 h cache.
  * Flow tiles stay on the classic relative path — do not change that upstream.
  *
  * @returns {import('vite').Plugin}
@@ -1848,9 +1850,23 @@ function tomtomProxy() {
   const UPSTREAM_TIMEOUT_MS = 15000;
   const ROUTE_UPSTREAM_TIMEOUT_MS = 20000;
   const ALLOWED_ROUTE_MINUTES = new Set([5, 10, 15]);
-  /** Shopping Centre, Market, Shop, Department Store — retail anchors only. */
-  const NEARBY_RETAIL_CATEGORY_SET = '7373,7332,9361,7327';
-  const NEARBY_LIMIT = 20;
+  /**
+   * Allowlisted nearbySearch category profiles (clients cannot invent sets).
+   * 7373 Shopping Centre · 7332 Market · 9361 Shop · 7327 Department Store.
+   */
+  const NEARBY_PROFILES = Object.freeze({
+    retail: '7373,7332,9361,7327',
+    centres: '7373',
+    stores: '7332,9361,7327',
+  });
+  /** TomTom nearbySearch max per request. */
+  const NEARBY_PAGE_LIMIT = 100;
+  /** Max pages per cached nearby-poi fetch (stores may need a second page). */
+  const NEARBY_MAX_PAGES = Object.freeze({
+    retail: 2,
+    centres: 1,
+    stores: 2,
+  });
 
   /** @type {Map<string, {at:number, buf:Buffer}>} tile key `z/x/y` -> cached tile (kept past TTL for serve-stale). */
   const mem = new Map();
@@ -2109,56 +2125,103 @@ function tomtomProxy() {
   }
 
   /**
-   * Search nearbySearch — sanitized retail POI ring for Sites competitors.
-   * @param {number} lat @param {number} lon @param {number} radiusM
+   * Normalize one TomTom nearbySearch result into a sanitized place row.
+   * @param {object} row
+   * @param {Set<string>} seen
+   * @param {string} profile
    */
-  async function fetchNearbyPoiUpstream(lat, lon, radiusM) {
-    const qs = new URLSearchParams({
-      key: process.env.TOMTOM_API_KEY,
-      lat: String(lat),
-      lon: String(lon),
-      radius: String(radiusM),
-      limit: String(NEARBY_LIMIT),
-      categorySet: NEARBY_RETAIL_CATEGORY_SET,
-    });
-    const url = `https://api.tomtom.com/search/2/nearbySearch/.json?${qs}`;
-    recordRouteUpstreamFetch();
-    const res = await fetch(url, { signal: AbortSignal.timeout(ROUTE_UPSTREAM_TIMEOUT_MS) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+  function sanitizeNearbyPlace(row, seen, profile) {
+    const name = row?.poi?.name || row?.address?.freeformAddress;
+    const plat = row?.position?.lat;
+    const plon = row?.position?.lon;
+    if (!name || ![plat, plon].every(Number.isFinite)) return null;
+    const id = row.id || `${name}|${plat}|${plon}`;
+    if (seen.has(id)) return null;
+    seen.add(id);
+    const categories = Array.isArray(row?.poi?.categories)
+      ? row.poi.categories.filter((c) => typeof c === 'string').slice(0, 4)
+      : [];
+    const categoryIds = Array.isArray(row?.poi?.categorySet)
+      ? row.poi.categorySet
+        .map((c) => Number(c?.id))
+        .filter((n) => Number.isFinite(n))
+        .slice(0, 4)
+      : [];
+    // Centres profile is categorySet=7373 — tag explicitly when upstream omits ids.
+    if (profile === 'centres' && !categoryIds.includes(7373)) categoryIds.push(7373);
+    const primaryType = categories[0]
+      || (categoryIds[0] != null ? String(categoryIds[0]) : null);
+    const dist = Number.isFinite(row?.dist) ? Math.round(row.dist) : null;
+    const address = typeof row?.address?.freeformAddress === 'string'
+      ? String(row.address.freeformAddress).slice(0, 200)
+      : null;
+    return {
+      id: typeof row.id === 'string' ? row.id : null,
+      name: String(name).slice(0, 160),
+      distanceM: dist,
+      primaryType,
+      types: categories,
+      categoryIds,
+      address,
+      lat: plat,
+      lon: plon,
+    };
+  }
+
+  /**
+   * Search nearbySearch — sanitized retail POI ring for Sites retail context.
+   * Pages with ofs when needed (stores/retail up to 2×100) so counts are honest.
+   * @param {number} lat @param {number} lon @param {number} radiusM
+   * @param {string} profile retail|centres|stores
+   */
+  async function fetchNearbyPoiUpstream(lat, lon, radiusM, profile = 'retail') {
+    const categorySet = NEARBY_PROFILES[profile] || NEARBY_PROFILES.retail;
+    const maxPages = NEARBY_MAX_PAGES[profile] || 1;
     const places = [];
     const seen = new Set();
-    for (const row of Array.isArray(data?.results) ? data.results : []) {
-      const name = row?.poi?.name || row?.address?.freeformAddress;
-      const plat = row?.position?.lat;
-      const plon = row?.position?.lon;
-      if (!name || ![plat, plon].every(Number.isFinite)) continue;
-      const id = row.id || `${name}|${plat}|${plon}`;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const categories = Array.isArray(row?.poi?.categories)
-        ? row.poi.categories.filter((c) => typeof c === 'string').slice(0, 4)
-        : [];
-      const primaryType = categories[0]
-        || (Array.isArray(row?.poi?.categorySet) && row.poi.categorySet[0]?.id != null
-          ? String(row.poi.categorySet[0].id)
-          : null);
-      const dist = Number.isFinite(row?.dist) ? Math.round(row.dist) : null;
-      places.push({
-        id: typeof row.id === 'string' ? row.id : null,
-        name: String(name).slice(0, 160),
-        distanceM: dist,
-        primaryType,
-        types: categories,
-        lat: plat,
-        lon: plon,
+    let totalResults = null;
+    let ofs = 0;
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const qs = new URLSearchParams({
+        key: process.env.TOMTOM_API_KEY,
+        lat: String(lat),
+        lon: String(lon),
+        radius: String(radiusM),
+        limit: String(NEARBY_PAGE_LIMIT),
+        ofs: String(ofs),
+        categorySet,
       });
+      const url = `https://api.tomtom.com/search/2/nearbySearch/.json?${qs}`;
+      recordRouteUpstreamFetch();
+      const res = await fetch(url, { signal: AbortSignal.timeout(ROUTE_UPSTREAM_TIMEOUT_MS) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (Number.isFinite(data?.summary?.totalResults)) {
+        totalResults = Number(data.summary.totalResults);
+      }
+      const rows = Array.isArray(data?.results) ? data.results : [];
+      for (const row of rows) {
+        const place = sanitizeNearbyPlace(row, seen, profile);
+        if (place) places.push(place);
+      }
+      if (rows.length < NEARBY_PAGE_LIMIT) break;
+      if (totalResults != null && places.length >= totalResults) break;
+      ofs += NEARBY_PAGE_LIMIT;
     }
+
     places.sort((a, b) => (a.distanceM ?? 1e12) - (b.distanceM ?? 1e12));
+    const truncated = totalResults != null
+      ? places.length < totalResults
+      : places.length >= NEARBY_PAGE_LIMIT * maxPages;
     return {
       origin: { lat, lon },
       radiusM,
+      profile,
       places,
+      totalResults,
+      truncated,
+      returned: places.length,
     };
   }
 
@@ -2313,15 +2376,19 @@ function tomtomProxy() {
             const radiusM = Number.isFinite(radiusRaw)
               ? Math.max(50, Math.min(50000, radiusRaw))
               : 5000;
+            const profileRaw = String(query.get('profile') || 'retail').toLowerCase();
+            const profile = Object.prototype.hasOwnProperty.call(NEARBY_PROFILES, profileRaw)
+              ? profileRaw
+              : 'retail';
             if (![lat, lon].every(Number.isFinite) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
               sendJson(400, { error: 'invalid_origin' });
               return;
             }
-            // Fixed retail categorySet server-side — clients cannot widen the query.
-            const cacheKey = `poi-${lat.toFixed(3)},${lon.toFixed(3)},${radiusM}`;
+            // Allowlisted profile only — clients cannot widen categorySet.
+            const cacheKey = `poi-${lat.toFixed(3)},${lon.toFixed(3)},${radiusM},${profile}`;
             await serveCachedRouteJson(
               cacheKey,
-              () => fetchNearbyPoiUpstream(lat, lon, radiusM),
+              () => fetchNearbyPoiUpstream(lat, lon, radiusM, profile),
               sendJson,
             );
             return;
