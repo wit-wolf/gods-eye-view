@@ -25,6 +25,7 @@ import {
   formatCompetitorListHtml,
   loadSiteCompetitors,
   loadSiteLocality,
+  retailContextSourceLabel,
 } from './siteResearch.js';
 import { loadSiteZoning } from './siteZoning.js';
 import { loadSiteDemographics } from './siteDemographics.js';
@@ -227,46 +228,133 @@ function paintLocality(mount, locality) {
   `;
 }
 
-function competitorSourceLabel(competitors) {
-  if (competitors?.source === 'tomtom') return ' · TomTom Places Search (retail categories)';
-  if (competitors?.source === 'google') {
-    return ` · Google Places (retail types)${competitors.fallbackNote || ''}`;
-  }
-  return '';
-}
-
 function paintCompetitors(mount, competitors) {
   if (!mount) return;
   const body = mount.querySelector('[data-site-competitors-body]') || mount;
   if (!competitors || (competitors.status !== 'ok' && competitors.status !== 'empty')) {
     const msg = competitors?.status === 'keyless'
-      ? (competitors.message || 'No TomTom or Maps key — competitor nearby search unavailable.')
+      ? (competitors.message || 'No TomTom or Maps key — retail nearby search unavailable.')
       : competitors?.status === 'budget'
         ? (competitors.message || 'TomTom Evaluation search budget reached — try again later.')
         : competitors?.status === 'denied'
           ? (competitors.message || 'Google Places denied this request.')
-          : (competitors?.message || 'Competitor search unavailable.');
+          : (competitors?.message || 'Retail context search unavailable.');
     body.innerHTML = `<p class="site-card-muted">${escapeHtml(msg)}</p>`;
     return;
   }
   if (competitors.status === 'empty') {
-    body.innerHTML = `<p class="site-card-muted">${escapeHtml(competitors.message || 'No retail anchors found within 5 km.')}</p>`;
+    body.innerHTML = `<p class="site-card-muted">${escapeHtml(competitors.message || 'No retail context found near this pin.')}</p>`;
     return;
   }
-  const list2 = formatCompetitorListHtml(competitors.within2km, 8, escapeHtml);
+
+  const source = retailContextSourceLabel(competitors);
+  const truncNote = competitors.storesTruncated
+    ? (Number.isFinite(competitors.storesTotalResults)
+      ? ` TomTom store search returned a page of matches (${competitors.storesTotalResults} total reported) — counts below are from returned matches only.`
+      : ' TomTom store search may be incomplete — counts are from returned matches only.')
+    : '';
+
+  const centresBlock = paintCompetingCentresHtml(competitors, source);
+  if (competitors.mode === 'in_centre' && competitors.hostCentre) {
+    body.innerHTML = `
+      ${paintTenantsInCentreHtml(competitors, source, truncNote)}
+      ${centresBlock}
+      ${paintStandaloneAnchorsHtml(competitors)}
+    `;
+    return;
+  }
+
+  body.innerHTML = `
+    ${paintRetailNearbyHtml(competitors, source, truncNote)}
+    ${centresBlock}
+  `;
+}
+
+function paintTenantsInCentreHtml(competitors, source, truncNote) {
+  const host = competitors.hostCentre;
+  const count = competitors.tenants?.length || 0;
+  const radius = competitors.tenantRadiusM || 200;
+  const footprint = competitors.usedMallPolygon
+    ? 'within the OSM mall footprint'
+    : `within ~${radius} m of the centre point`;
+  const groups = Array.isArray(competitors.tenantGroups) ? competitors.tenantGroups : [];
+  const groupsHtml = groups.length
+    ? groups.map((g) => {
+      const list = formatCompetitorListHtml(g.places, 12, escapeHtml);
+      return `<div class="site-card-tenant-group">
+        <div class="site-card-tenant-group-title">${escapeHtml(g.label)} · ${g.places.length}</div>
+        ${list ? `<ul class="site-card-nearby-list">${list}</ul>` : ''}
+      </div>`;
+    }).join('')
+    : '<p class="site-card-muted">No in-centre store POIs returned for this footprint.</p>';
+
+  return `
+    <div class="site-card-subsection">
+      <div class="site-card-section-title">Tenants in this centre</div>
+      <p class="site-card-nearby-summary">
+        <strong>${escapeHtml(host.name)}</strong>
+        · <strong>${count}</strong> tenant${count === 1 ? '' : 's'} ${escapeHtml(footprint)}
+        <span class="site-card-muted">${escapeHtml(source)}</span>
+      </p>
+      <p class="site-card-muted">These are the centre&rsquo;s tenant mix — not competing centres.${escapeHtml(truncNote)}</p>
+      ${groupsHtml}
+    </div>
+  `;
+}
+
+function paintCompetingCentresHtml(competitors, source) {
+  const c5 = competitors.competingWithin5km || [];
+  const c10 = competitors.competingWithin10km || competitors.competingCentres || [];
+  const list = formatCompetitorListHtml(c10, 12, escapeHtml);
+  return `
+    <div class="site-card-subsection">
+      <div class="site-card-section-title">Competing centres</div>
+      <p class="site-card-nearby-summary">
+        <strong>${c5.length}</strong> within 5 km
+        · <strong>${c10.length}</strong> within 10 km
+        <span class="site-card-muted">${escapeHtml(source || ' · TomTom Places Search (shopping centres)')}</span>
+      </p>
+      ${list
+    ? `<ul class="site-card-nearby-list">${list}</ul>`
+    : '<p class="site-card-muted">No other shopping centres within 10 km.</p>'}
+    </div>
+  `;
+}
+
+function paintRetailNearbyHtml(competitors, source, truncNote) {
+  const w2 = competitors.retailWithin2km || competitors.within2km || [];
+  const w5 = competitors.retailWithin5km || competitors.within5km || [];
+  const list2 = formatCompetitorListHtml(w2, 8, escapeHtml);
   const list5 = formatCompetitorListHtml(
-    competitors.within5km.filter((p) => p.distanceM > 2000),
+    w5.filter((p) => p.distanceM > 2000),
     6,
     escapeHtml,
   );
-  body.innerHTML = `
-    <p class="site-card-nearby-summary">
-      <strong>${competitors.within2km.length}</strong> within 2 km
-      · <strong>${competitors.within5km.length}</strong> within 5 km
-      <span class="site-card-muted">${escapeHtml(competitorSourceLabel(competitors))}</span>
-    </p>
-    ${list2 ? `<ul class="site-card-nearby-list">${list2}</ul>` : '<p class="site-card-muted">None within 2 km.</p>'}
-    ${list5 ? `<details class="site-card-attrs"><summary>Also within 5 km</summary><ul class="site-card-nearby-list">${list5}</ul></details>` : ''}
+  return `
+    <div class="site-card-subsection">
+      <div class="site-card-section-title">Retail nearby</div>
+      <p class="site-card-nearby-summary">
+        <strong>${w2.length}</strong> within 2 km
+        · <strong>${w5.length}</strong> within 5 km
+        <span class="site-card-muted">${escapeHtml(source)}</span>
+      </p>
+      ${truncNote ? `<p class="site-card-muted">${escapeHtml(truncNote.trim())}</p>` : ''}
+      ${list2 ? `<ul class="site-card-nearby-list">${list2}</ul>` : '<p class="site-card-muted">None within 2 km.</p>'}
+      ${list5 ? `<details class="site-card-attrs"><summary>Also within 5 km</summary><ul class="site-card-nearby-list">${list5}</ul></details>` : ''}
+    </div>
+  `;
+}
+
+function paintStandaloneAnchorsHtml(competitors) {
+  const anchors = competitors.standaloneAnchors || [];
+  if (!anchors.length) return '';
+  const list = formatCompetitorListHtml(anchors, 6, escapeHtml);
+  return `
+    <div class="site-card-subsection">
+      <div class="site-card-section-title">Major standalone anchors</div>
+      <p class="site-card-muted">Department stores / hypermarkets outside this centre (not competing malls).</p>
+      <ul class="site-card-nearby-list">${list}</ul>
+    </div>
   `;
 }
 
@@ -547,8 +635,7 @@ export function openSiteCard({
 
     ${showCompetitors ? `
     <section class="site-card-section" data-site-competitors>
-      <div class="site-card-section-title">Competitors nearby</div>
-      <p class="site-card-muted" data-site-competitors-body>Searching retail anchors (TomTom Places)…</p>
+      <p class="site-card-muted" data-site-competitors-body>Searching retail context (TomTom Places)…</p>
     </section>
     ` : ''}
 

@@ -9461,6 +9461,27 @@ body.scene-playback-mode #first-run-launcher {
   line-height: 1.4;
 }
 
+.site-card-subsection {
+  margin: 0 0 0.75rem;
+}
+
+.site-card-subsection + .site-card-subsection {
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(159, 183, 178, 0.14);
+}
+
+.site-card-tenant-group {
+  margin: 0.35rem 0 0.55rem;
+}
+
+.site-card-tenant-group-title {
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9fb7b2;
+  margin-bottom: 0.15rem;
+}
+
 .site-card-nearby-summary {
   margin: 0 0 0.4rem;
   font-size: 0.78rem;
