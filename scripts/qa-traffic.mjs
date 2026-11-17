@@ -28,6 +28,10 @@
  * Visual proof saved to qa-shots/ (gitignored).
  *
  * Run:  node scripts/qa-traffic.mjs --url http://localhost:4410
+ * Mocked CI mode (Overpass blocked + fixture TomTom tiles, no live key needed):
+ *   node scripts/qa-traffic.mjs --url http://localhost:5173 --mocked
+ * Live keyed mode with Overpass forced down (TomTom roads must still move):
+ *   node scripts/qa-traffic.mjs --url http://localhost:4410 --block-overpass
  * Exits non-zero on any FAIL. Does not commit anything.
  */
 
@@ -39,6 +43,9 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const SHOTS_DIR = path.join(REPO_ROOT, 'qa-shots');
+const TOMTOM_FIXTURE = path.join(
+  REPO_ROOT, 'src', 'data', 'fixtures', 'tomtom-flow-austin-12-935-1686.pbf',
+);
 
 const argv = process.argv.slice(2);
 const getOpt = (name, dflt) => {
@@ -47,6 +54,10 @@ const getOpt = (name, dflt) => {
 };
 const APP_URL = getOpt('--url', 'http://localhost:4410');
 const HEADFUL = argv.includes('--headful');
+/** CI / no-key path: mock TomTom status+tiles, block Overpass. */
+const MOCKED = argv.includes('--mocked');
+/** Keep real TomTom proxy but make /api/overpass unreachable. */
+const BLOCK_OVERPASS = argv.includes('--block-overpass') || MOCKED;
 
 /** App URL with first-run launcher suppressed (?welcome=0). */
 function appUrlWithWelcomeDismissed(rawUrl) {
@@ -171,9 +182,55 @@ function positionsMoved(a, b, minMeters = 0.5) {
   };
 }
 
+async function installTrafficMocks(page, { mockTomTom, blockOverpass, onFlowRequest }) {
+  const fixtureBuf = mockTomTom && fs.existsSync(TOMTOM_FIXTURE)
+    ? fs.readFileSync(TOMTOM_FIXTURE)
+    : null;
+  await page.setRequestInterception(true);
+  page.on('request', async (req) => {
+    const url = req.url();
+    if (url.includes('/api/tomtom/flow/')) onFlowRequest?.(url);
+    try {
+      if (blockOverpass && url.includes('/api/overpass')) {
+        await req.respond({
+          status: 502,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'overpass_blocked_by_qa' }),
+        });
+        return;
+      }
+      if (mockTomTom && url.includes('/api/tomtom/status')) {
+        await req.respond({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            hasKey: true,
+            dailyCount: 0,
+            budget: 2500,
+            date: new Date().toISOString().slice(0, 10),
+          }),
+        });
+        return;
+      }
+      if (mockTomTom && url.includes('/api/tomtom/flow/') && fixtureBuf) {
+        await req.respond({
+          status: 200,
+          contentType: 'application/x-protobuf',
+          body: fixtureBuf,
+        });
+        return;
+      }
+      await req.continue();
+    } catch {
+      try { await req.continue(); } catch { /* ignore */ }
+    }
+  });
+}
+
 async function main() {
   console.log('\nTomTom Live-Flow Traffic Proof (qa-traffic)');
-  console.log(`  App URL : ${BOOT_URL}\n`);
+  console.log(`  App URL : ${BOOT_URL}`);
+  console.log(`  Mode    : ${MOCKED ? 'mocked (fixture tiles + Overpass blocked)' : BLOCK_OVERPASS ? 'live + Overpass blocked' : 'live'}\n`);
 
   try {
     const res = await fetch(APP_URL);
@@ -183,10 +240,13 @@ async function main() {
     process.exit(2);
   }
 
-  const statusBefore = await fetch(`${APP_URL}/api/tomtom/status`).then((r) => r.json()).catch(() => null);
-  if (!statusBefore?.hasKey) {
-    console.error('\x1b[31mServer has no TomTom key — run against the keyed dev server (:4410).\x1b[0m');
+  let statusBefore = await fetch(`${APP_URL}/api/tomtom/status`).then((r) => r.json()).catch(() => null);
+  if (!MOCKED && !statusBefore?.hasKey) {
+    console.error('\x1b[31mServer has no TomTom key — run against the keyed dev server (:4410), or pass --mocked.\x1b[0m');
     process.exit(2);
+  }
+  if (MOCKED) {
+    statusBefore = { hasKey: true, dailyCount: 0, budget: 2500 };
   }
 
   fs.mkdirSync(SHOTS_DIR, { recursive: true });
@@ -208,9 +268,17 @@ async function main() {
 
     // Track flow-tile requests + traffic console lines for (ii)/(iii)/(v).
     const flowRequests = [];
-    page.on('request', (req) => {
-      if (req.url().includes('/api/tomtom/flow/')) flowRequests.push(req.url());
-    });
+    if (MOCKED || BLOCK_OVERPASS) {
+      await installTrafficMocks(page, {
+        mockTomTom: MOCKED,
+        blockOverpass: BLOCK_OVERPASS,
+        onFlowRequest: (url) => flowRequests.push(url),
+      });
+    } else {
+      page.on('request', (req) => {
+        if (req.url().includes('/api/tomtom/flow/')) flowRequests.push(req.url());
+      });
+    }
     const trafficLogs = [];
     page.on('console', (msg) => {
       const t = msg.text();
@@ -226,15 +294,21 @@ async function main() {
     await dismissFirstRunUi(page);
     await sleep(1500);
 
-    // ── (i) LIVE mode: San Antonio — fast Overpass extract, partial TomTom
-    // coverage (sim dots exist for (iv)). Mumbai proved too Overpass-cold for
-    // a deterministic harness; congestion colors assert the same either way.
-    console.log('\n(i) LIVE mode — San Antonio (partial coverage)...');
-    let mumbai = await settleTraffic(page, { lon: -98.4936, lat: 29.4241, height: 2800, heading: 23, pitch: -72 }, { minCount: 300, timeoutS: 45 });
+    // ── (i) LIVE mode ───────────────────────────────────────────────────────
+    // Mocked: Austin fixture tile center (Overpass blocked — TomTom roads only).
+    // Live: San Antonio — partial TomTom coverage (sim dots exist for (iv)).
+    const liveView = MOCKED
+      ? { lon: -97.7431, lat: 30.2672, height: 2800, heading: 23, pitch: -72 }
+      : { lon: -98.4936, lat: 29.4241, height: 2800, heading: 23, pitch: -72 };
+    const liveRetry = MOCKED
+      ? { lon: -97.74, lat: 30.26, height: 2800, heading: 23, pitch: -72 }
+      : { lon: -98.487, lat: 29.43, height: 2800, heading: 23, pitch: -72 };
+    console.log(`\n(i) LIVE mode — ${MOCKED ? 'Austin fixture (Overpass blocked)' : 'San Antonio'}...`);
+    let mumbai = await settleTraffic(page, liveView, { minCount: MOCKED ? 50 : 300, timeoutS: 45 });
     if (!mumbai || mumbai.count === 0) {
       // One retry with a nudged center to defeat the overlap gate (a slow
       // first Overpass response can strand the initial load).
-      mumbai = await settleTraffic(page, { lon: -98.487, lat: 29.43, height: 2800, heading: 23, pitch: -72 }, { minCount: 300, timeoutS: 45 });
+      mumbai = await settleTraffic(page, liveRetry, { minCount: MOCKED ? 50 : 300, timeoutS: 45 });
     }
     {
       const b = mumbai.flowBuckets || {};
@@ -247,6 +321,10 @@ async function main() {
       record('LIVE: flow coverage > 0 and tiles fetched > 0',
         mumbai.flowCoveragePct > 0 && mumbai.tilesFetched > 0,
         `coverage=${mumbai.flowCoveragePct}% tiles=${mumbai.tilesFetched}`);
+      if (BLOCK_OVERPASS) {
+        record('LIVE: dots with Overpass blocked (TomTom road source)', dotsOk,
+          `count=${mumbai.count} overpass=blocked`);
+      }
 
       // Moving dots: sample detectable positions twice ~4 s apart.
       const sampleA = await sampleDetectablePositions(page);
@@ -275,6 +353,8 @@ async function main() {
       await page.screenshot({ path: path.join(SHOTS_DIR, 'traffic-live-flow.png') });
     }
 
+    // Mocked mode stops after the TomTom-primary / Overpass-blocked contract.
+    if (!MOCKED) {
     // ── (iv) uncovered-roads param — hide vs sim ─────────────────────────────
     console.log('\n(iv) uncoveredRoads param — hide vs sim...');
     if ((mumbai.flowBuckets?.sim || 0) > 0) {
@@ -413,6 +493,9 @@ async function main() {
       }
       await sleep(1000);
       await page.screenshot({ path: path.join(SHOTS_DIR, 'traffic-sim-keyless.png') });
+    }
+    } else {
+      console.log('\n(mocked) Skipping live-only C4 / budget / keyless sections.');
     }
   } catch (e) {
     console.error('\x1b[31mHarness error:\x1b[0m', e);

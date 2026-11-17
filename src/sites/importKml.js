@@ -216,6 +216,12 @@ export async function parseGzippedGeoJSON(buffer) {
   if (typeof DecompressionStream !== 'function') {
     throw new Error('Gzipped GeoJSON requires DecompressionStream');
   }
+  // Dev/static servers often send .gz with Content-Encoding: gzip, so the
+  // browser has already inflated it. Only decompress real gzip bytes.
+  const bytes = new Uint8Array(buffer instanceof ArrayBuffer ? buffer : buffer.buffer || buffer);
+  if (!(bytes[0] === 0x1f && bytes[1] === 0x8b)) {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
   const stream = new Response(buffer).body.pipeThrough(new DecompressionStream('gzip'));
   const text = await new Response(stream).text();
   return JSON.parse(text);

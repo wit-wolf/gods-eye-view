@@ -276,7 +276,7 @@ test('406 HTML falls through to the next Overpass mirror', async () => {
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(url);
-    if (url.includes('overpass-api.de')) {
+    if (url.includes('overpass-api.de') && !url.includes('lz4.')) {
       return mockResponse(406, POISON_406_HTML, 'text/html');
     }
     return mockResponse(200, VALID_OSM_JSON, 'application/json');
@@ -287,12 +287,77 @@ test('406 HTML falls through to the next Overpass mirror', async () => {
       'https://overpass-api.de/api/interpreter',
       'https://overpass.kumi.systems/api/interpreter',
     ],
+    staggerMs: 50,
+    totalTimeoutMs: 5_000,
   });
-  assert.equal(calls.length, 2, 'must try the second mirror after 406');
+  assert.ok(calls.length >= 2, 'must try the second mirror after 406');
   assert.equal(payload.status, 200);
   assert.equal(payload.endpoint, 'https://overpass.kumi.systems/api/interpreter');
   assert.equal(isValidOverpassOsmBody(payload.body), true);
   assert.match(payload.body, /"elements"/);
+});
+
+test('hedged race: slow first mirror loses to a faster second', async () => {
+  const started = [];
+  const fetchImpl = async (url, opts) => {
+    started.push({ url, at: Date.now() });
+    if (url.includes('slow')) {
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(resolve, 800);
+        opts?.signal?.addEventListener('abort', () => {
+          clearTimeout(t);
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+      return mockResponse(200, VALID_OSM_JSON, 'application/json');
+    }
+    await new Promise((r) => setTimeout(r, 40));
+    return mockResponse(200, VALID_OSM_JSON, 'application/json');
+  };
+  const t0 = Date.now();
+  const payload = await fetchOverpassPayload('data=test', 1_000_000, {
+    fetchImpl,
+    upstreams: [
+      'https://slow.example/api/interpreter',
+      'https://fast.example/api/interpreter',
+    ],
+    staggerMs: 80,
+    totalTimeoutMs: 5_000,
+    perUpstreamTimeoutMs: 5_000,
+  });
+  const elapsed = Date.now() - t0;
+  assert.equal(payload.endpoint, 'https://fast.example/api/interpreter');
+  assert.ok(started.length >= 2, `expected both mirrors launched, got ${started.length}`);
+  assert.ok(elapsed < 700, `race should finish well under the slow mirror (${elapsed}ms)`);
+});
+
+test('hedged race: total timeout caps the wait', async () => {
+  const fetchImpl = async (_url, opts) => {
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(resolve, 10_000);
+      opts?.signal?.addEventListener('abort', () => {
+        clearTimeout(t);
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        reject(err);
+      });
+    });
+    return mockResponse(200, VALID_OSM_JSON, 'application/json');
+  };
+  const t0 = Date.now();
+  await assert.rejects(
+    () => fetchOverpassPayload('data=test', 1_000_000, {
+      fetchImpl,
+      upstreams: ['https://hang.example/api/interpreter'],
+      staggerMs: 50,
+      totalTimeoutMs: 200,
+      perUpstreamTimeoutMs: 5_000,
+    }),
+    /All Overpass|aborted|failed/i,
+  );
+  assert.ok(Date.now() - t0 < 1500, 'total timeout must bound the race');
 });
 
 test('HTML / non-OSM bodies are never accepted as a successful mirror response', async () => {

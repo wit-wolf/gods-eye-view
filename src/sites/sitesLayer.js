@@ -664,30 +664,51 @@ async function paintFeatures(features, {
 }
 
 async function loadCachedOrPromptEmpty() {
-  // Enabling Sites alone must stay instant. Only paint layers already cached
-  // in IndexedDB from a prior DEMO/IMPORT — never auto-fetch the November dump.
+  // Paint whatever IndexedDB already has (dropped pins / imports). When the
+  // November demo layer is missing from this origin's cache (LAN IP changes
+  // often → empty IndexedDB), auto-run the existing demo load (preview, then
+  // full gzipped stream) so Sites stays useful without a manual DEMO click.
   _catalog = loadLayerCatalog();
   const collections = [];
+  /** @type {object[]} */
+  const nonDemoCollections = [];
+  let demoCached = false;
   for (const entry of _catalog) {
     if (entry.visible === false) continue;
     const geojson = await loadLayerGeoJSON(entry.id).catch(() => null);
-    if (geojson?.features?.length) collections.push(geojson);
+    if (geojson?.features?.length) {
+      collections.push(geojson);
+      if (entry.id === DEMO_LAYER_ID) demoCached = true;
+      else nonDemoCollections.push(geojson);
+    }
   }
-  if (!collections.length) {
+
+  if (collections.length) {
+    const features = collections.flatMap((c) => c.features || []);
+    const { signal, generation } = beginLoad();
+    clearDataSource();
+    try {
+      await paintFeatures(features, { signal, generation });
+    } catch (error) {
+      if (isAbortError(error)) return;
+      console.error('[Sites] cached paint failed:', error);
+      setBusy('unavailable', error?.message || 'dataset unavailable');
+      return;
+    }
+  } else {
     _count = 0;
     _totalPlanned = 0;
-    setBusy('empty', null, 'Click DEMO, IMPORT, or PIN');
+  }
+
+  if (!demoCached) {
+    // Preserve dropped pins / imports: runDemoLoad clears then re-paints
+    // these alongside the Cape Town preview before streaming the full dump.
+    await runDemoLoad({ mergeCachedLayers: nonDemoCollections });
     return;
   }
-  const features = collections.flatMap((c) => c.features || []);
-  const { signal, generation } = beginLoad();
-  clearDataSource();
-  try {
-    await paintFeatures(features, { signal, generation });
-  } catch (error) {
-    if (isAbortError(error)) return;
-    console.error('[Sites] cached paint failed:', error);
-    setBusy('unavailable', error?.message || 'dataset unavailable');
+
+  if (!collections.length) {
+    setBusy('empty', null, 'Click DEMO, IMPORT, or PIN');
   }
 }
 
@@ -1158,7 +1179,12 @@ function flyToCurrentFeatures(geojson = null) {
   _viewer.camera.flyTo({ destination: rectangle, duration: 1.6 });
 }
 
-async function runDemoLoad() {
+/**
+ * @param {{mergeCachedLayers?: object[]}} [opts]
+ *   Optional non-demo FeatureCollections to keep merged in after clear
+ *   (dropped pins / imports already painted from IndexedDB).
+ */
+async function runDemoLoad({ mergeCachedLayers = [] } = {}) {
   const { signal, generation } = beginLoad();
   setBusy('loading', null, 'Loading Cape Town preview…');
   try {
@@ -1167,10 +1193,14 @@ async function runDemoLoad() {
     if (signal.aborted) throw abortErr();
 
     clearDataSource();
-    await paintFeatures(preview.features, {
+    const mergedPreview = [
+      ...mergeCachedLayers.flatMap((c) => c.features || []),
+      ...preview.features,
+    ];
+    await paintFeatures(mergedPreview, {
       signal,
       generation,
-      firstPaint: preview.features.length,
+      firstPaint: Math.max(preview.features.length, mergedPreview.length),
     });
     flyToCurrentFeatures(preview);
 

@@ -146,11 +146,12 @@ const OPENSKY_SOURCE_STALE_MS = 120_000;
 // ---------------------------------------------------------------------------
 // Overpass API proxy constants and cache state
 // ---------------------------------------------------------------------------
-/** Ordered list of Overpass API mirrors; tried sequentially on failure/rate-limit. */
+/** Ordered list of Overpass API mirrors; raced with a short stagger (see fetchOverpassPayload). */
 const OVERPASS_UPSTREAMS = [
+  // Prefer lz4 first — overpass-api.de often 406s generic UAs / is overloaded.
+  'https://lz4.overpass-api.de/api/interpreter',
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
   // Community full-planet instance (privateforge nonprofit) — added 2026-07-30
   // when all three mirrors above refused this IP (likely a dev-traffic rate
   // ban; refused connections fail in ms, so healthy mirrors above still win).
@@ -178,8 +179,14 @@ const OVERPASS_DISK_TTL_MS = 7 * 86_400_000;
 const OVERPASS_BOUNDARY_DISK_TTL_MS = 30 * 86_400_000;
 /** Disk-cache directory for Overpass responses. */
 const OVERPASS_DISK_DIR = path.join(process.cwd(), '.gev-cache', 'overpass');
-/** Per-upstream fetch timeout (ms). */
+/** Per-upstream fetch timeout (ms) — individual mirror budget inside the race. */
 const OVERPASS_TIMEOUT_MS = 22000;
+/** Stagger before launching the next mirror when the prior ones are still pending (ms). */
+const OVERPASS_STAGGER_MS = 1500;
+/** Hard cap for the whole multi-mirror race (ms). */
+const OVERPASS_TOTAL_TIMEOUT_MS = 25000;
+/** User-Agent for Overpass mirrors — overpass-api.de returns 406 for generic/old UAs. */
+const OVERPASS_USER_AGENT = 'VoloDev/1.0 (wernervictor)';
 /** Max entries in the Overpass response cache (LRU-like, oldest evicted first). */
 const OVERPASS_CACHE_MAX_ENTRIES = 120;
 /** @type {Map<string,{status:number,body:string,contentType:string,endpoint:string,cachedAt:number}>} */
@@ -2526,6 +2533,126 @@ function georgeZoningProxy() {
   };
 }
 
+
+function capeTownZoningProxy() {
+  const UPSTREAM = 'https://citymaps.capetown.gov.za/agsext/rest/services/Theme_Based/ODP_SPLIT_5/FeatureServer/0/query';
+  /** ~275 m half-width at mid-latitudes — enough for a pin, far below full layer. */
+  const HALF_DEG = 0.0025;
+  const RESULT_RECORD_COUNT = 25;
+  const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+  /** @type {Map<string, {at:number, body:object}>} */
+  const memory = new Map();
+
+  function sendJson(res, status, obj, extraHeaders = {}) {
+    if (res.headersSent) return;
+    res.writeHead(status, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      ...extraHeaders,
+    });
+    res.end(JSON.stringify(obj));
+  }
+
+  async function fetchUpstream(lat, lon) {
+    const geometry = JSON.stringify({
+      xmin: lon - HALF_DEG,
+      ymin: lat - HALF_DEG,
+      xmax: lon + HALF_DEG,
+      ymax: lat + HALF_DEG,
+    });
+    const qs = new URLSearchParams({
+      geometry,
+      geometryType: 'esriGeometryEnvelope',
+      inSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects',
+      outFields: 'INT_ZONE_CODE,INT_ZONE_DESC',
+      returnGeometry: 'true',
+      outSR: '4326',
+      f: 'geojson',
+      resultRecordCount: String(RESULT_RECORD_COUNT),
+    });
+    const upstream = await fetch(`${UPSTREAM}?${qs}`, {
+      signal: AbortSignal.timeout(15000),
+      headers: { Accept: 'application/geo+json, application/json' },
+    });
+    const textBody = await upstream.text();
+    if (!upstream.ok) {
+      const error = new Error(`upstream HTTP ${upstream.status}`);
+      error.upstreamStatus = upstream.status;
+      throw error;
+    }
+    let data;
+    try {
+      data = JSON.parse(textBody);
+    } catch {
+      throw new Error('malformed upstream geojson');
+    }
+    if (!data || typeof data !== 'object') throw new Error('malformed upstream body');
+    return data;
+  }
+
+  function install(middlewares) {
+    middlewares.use('/api/cape-town-zoning', async (req, res) => {
+      try {
+        if (req.method !== 'GET') {
+          sendJson(res, 405, { error: 'method' });
+          return;
+        }
+        const rawUrl = String(req.url || '');
+        const query = new URLSearchParams(
+          rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?') + 1) : '',
+        );
+        const lat = Number.parseFloat(query.get('lat') || '');
+        const lon = Number.parseFloat(query.get('lon') || '');
+        if (
+          ![lat, lon].every(Number.isFinite)
+          || lat < -90 || lat > 90
+          || lon < -180 || lon > 180
+        ) {
+          sendJson(res, 400, { error: 'invalid_origin' });
+          return;
+        }
+
+        const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+        const hit = memory.get(cacheKey);
+        if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+          sendJson(res, 200, hit.body, { 'x-cape-town-zoning-cache': 'HIT' });
+          return;
+        }
+
+        const data = await fetchUpstream(lat, lon);
+        const body = {
+          type: data.type || 'FeatureCollection',
+          features: Array.isArray(data.features) ? data.features : [],
+          attribution: 'City of Cape Town Integrated Zoning (ODP)',
+          municipality: 'City of Cape Town',
+          query: { lat, lon, halfDegrees: HALF_DEG, resultRecordCount: RESULT_RECORD_COUNT },
+        };
+        memory.set(cacheKey, { at: Date.now(), body });
+        sendJson(res, 200, body, { 'x-cape-town-zoning-cache': 'MISS' });
+      } catch (err) {
+        console.warn('[cape-town-zoning-proxy]', err?.message || err);
+        sendJson(res, 502, {
+          error: 'upstream',
+          message:
+            'Cape Town zoning FeatureServer unavailable (network/CORS). '
+            + 'Drop a GeoJSON extract at public/sites/zoning.geojson.',
+        });
+      }
+    });
+  }
+
+  return {
+    name: 'cape-town-zoning-proxy',
+    configureServer(server) {
+      install(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      install(server.middlewares);
+    },
+  };
+}
+
 /**
  * NASA FIRMS live active-fire proxy with a memory + disk cache.
  * Upstream: https://firms.modaps.eosdis.nasa.gov/api/area/csv/{KEY}/{SOURCE}/world/2
@@ -3074,44 +3201,70 @@ function sendOverpassResponse(res, payload, cacheStatus = 'MISS') {
 }
 
 /**
- * Try each Overpass upstream in order until one succeeds.
+ * Hedged multi-mirror Overpass fetch: fire the first upstream immediately,
+ * then launch the next after ~1.5 s while earlier mirrors are still pending
+ * (or immediately when a mirror fails). First valid OSM response wins; the
+ * rest are aborted. Total race budget ~25 s.
  *
  * Skips rate-limited responses, any non-2xx HTTP status (including 406),
- * runtime-error bodies, and non-OSM/HTML payloads, then falls through to the
- * next mirror. If all mirrors fail, returns the last rate-limited payload
- * (if any) or throws the last error.
+ * runtime-error bodies, and non-OSM/HTML payloads. If all mirrors fail,
+ * returns the last rate-limited payload (if any) or throws the last error.
  *
  * @param {string} body - URL-encoded Overpass QL query body.
  * @param {number} [maxResponseBytes] Endpoint-specific response cap.
  * @param {object} [options]
  * @param {typeof fetch} [options.fetchImpl]
  * @param {string[]} [options.upstreams]
+ * @param {number} [options.staggerMs]
+ * @param {number} [options.totalTimeoutMs]
+ * @param {number} [options.perUpstreamTimeoutMs]
  * @returns {Promise<{status:number,body:string,contentType:string,endpoint:string,rateLimited:boolean}>}
  */
 export async function fetchOverpassPayload(
   body,
   maxResponseBytes = OVERPASS_MAX_RESPONSE_BYTES,
-  { fetchImpl = fetch, upstreams = OVERPASS_UPSTREAMS } = {},
+  {
+    fetchImpl = fetch,
+    upstreams = OVERPASS_UPSTREAMS,
+    staggerMs = OVERPASS_STAGGER_MS,
+    totalTimeoutMs = OVERPASS_TOTAL_TIMEOUT_MS,
+    perUpstreamTimeoutMs = OVERPASS_TIMEOUT_MS,
+  } = {},
 ) {
+  if (!Array.isArray(upstreams) || upstreams.length === 0) {
+    throw new Error('All Overpass upstreams failed');
+  }
+
   let lastError = null;
   let lastRateLimitPayload = null;
+  let winner = null;
+  let done = false;
+  /** @type {AbortController[]} */
+  const controllers = upstreams.map(() => new AbortController());
 
-  for (const endpoint of upstreams) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+  const abortAll = () => {
+    for (const c of controllers) {
+      try { c.abort(); } catch { /* ignore */ }
+    }
+  };
 
+  const attemptMirror = async (endpoint, index) => {
+    if (done) return;
+    const controller = controllers[index];
+    const timeoutId = setTimeout(() => controller.abort(), perUpstreamTimeoutMs);
     try {
       const upstream = await fetchImpl(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'gods-eye-view-overpass-proxy/1.0',
+          'User-Agent': OVERPASS_USER_AGENT,
         },
         body,
         signal: controller.signal,
       });
 
       const responseBody = await readResponseTextCapped(upstream, maxResponseBytes);
+      if (done) return;
       const contentType = upstream.headers.get('content-type') || 'application/json';
       const status = upstream.status;
       const rateLimited = status === 429 || overpassLooksRateLimited(responseBody);
@@ -3127,38 +3280,99 @@ export async function fetchOverpassPayload(
 
       if (rateLimited) {
         lastRateLimitPayload = payload;
-        continue;
+        return;
       }
-      // A 200 body carrying a runtime error / timeout is a transient upstream
-      // failure — skip to the next mirror rather than returning or caching it.
+      // Transient upstream failure — keep racing other mirrors.
       if (runtimeError) {
         lastError = new Error(`Overpass runtime error (${endpoint})`);
-        continue;
+        return;
       }
       // Any non-2xx (406 Not Acceptable HTML from overpass-api.de, 5xx, etc.)
       // is a failed mirror — never treat as success or cache.
       if (status < 200 || status >= 300) {
         lastError = new Error(`Overpass upstream returned ${status} (${endpoint})`);
-        continue;
+        return;
       }
       // Validate OSM/Overpass JSON before accepting. HTML error bodies that
       // somehow arrive with 200 must not poison the cache or the client.
       if (!isValidOverpassOsmBody(responseBody)) {
         lastError = new Error(`Overpass upstream returned non-OSM payload (${endpoint})`);
-        continue;
+        return;
       }
 
       // Success: decimate giant boundary geometry before it reaches the cache,
       // the disk, or the client (what makes the 32 MB read cap safe to hold).
       payload.body = simplifyOverpassPayloadBody(payload.body);
-      return payload;
+      if (!done) {
+        done = true;
+        winner = payload;
+        abortAll();
+      }
     } catch (error) {
+      if (error?.name === 'AbortError') return;
       lastError = error;
     } finally {
       clearTimeout(timeoutId);
     }
-  }
+  };
 
+  await new Promise((resolve) => {
+    const totalTimer = setTimeout(() => {
+      done = true;
+      abortAll();
+      resolve();
+    }, totalTimeoutMs);
+
+    let nextIndex = 0;
+    let inFlight = 0;
+    /** @type {ReturnType<typeof setTimeout>|null} */
+    let staggerTimer = null;
+
+    const finishIfIdle = () => {
+      if (winner || (inFlight === 0 && nextIndex >= upstreams.length)) {
+        clearTimeout(totalTimer);
+        if (staggerTimer) clearTimeout(staggerTimer);
+        done = true;
+        abortAll();
+        resolve();
+      }
+    };
+
+    const launchNext = () => {
+      if (done || winner || nextIndex >= upstreams.length) {
+        finishIfIdle();
+        return;
+      }
+      const index = nextIndex;
+      nextIndex += 1;
+      inFlight += 1;
+      Promise.resolve(attemptMirror(upstreams[index], index)).finally(() => {
+        inFlight -= 1;
+        if (winner) {
+          finishIfIdle();
+          return;
+        }
+        // Mirror failed/rate-limited quickly — start the next hedge now
+        // instead of waiting out the remaining stagger.
+        if (!done && nextIndex < upstreams.length) {
+          if (staggerTimer) {
+            clearTimeout(staggerTimer);
+            staggerTimer = null;
+          }
+          launchNext();
+          return;
+        }
+        finishIfIdle();
+      });
+      if (!done && !winner && nextIndex < upstreams.length) {
+        staggerTimer = setTimeout(launchNext, staggerMs);
+      }
+    };
+
+    launchNext();
+  });
+
+  if (winner) return winner;
   if (lastRateLimitPayload) return lastRateLimitPayload;
   throw lastError || new Error('All Overpass upstreams failed');
 }
@@ -8297,6 +8511,7 @@ export default defineConfig(({ mode }) => {
       celestrakProxy(),
       tomtomProxy(),
       georgeZoningProxy(),
+      capeTownZoningProxy(),
       firmsProxy(),
       rocketLaunchesProxy(),
       terrainHeightsProxy(),
