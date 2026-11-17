@@ -2,16 +2,22 @@
  * Zoning / SDF join for research briefs.
  *
  * 1) Optional local public/sites/zoning.geojson (gitignored live file).
- * 2) If missing/empty — George Municipality Integrated Zoning bbox overlay
- *    (FeatureServer/16 envelope around the pin; never the full ~54k layer).
- * Never invents municipal codes.
+ * 2) If missing/empty — location-aware municipal registry (George, Cape Town, …).
+ *    Only the provider whose extent contains the pin is queried. Elsewhere:
+ *    honest "No zoning data for this area yet" with no municipal label.
+ * Never invents municipal codes or endpoints.
  */
 import {
   findContainingFeature,
   firstPropString,
   loadGeoJsonCollection,
 } from './geojsonJoin.js';
-import { loadGeorgeZoningBbox } from './georgeZoning.js';
+import {
+  NO_ZONING_DATA_MESSAGE,
+  noZoningDataResult,
+  selectZoningProvider,
+} from './zoningProviders.js';
+import { loadZoningProviderBbox } from './zoningQuery.js';
 
 export const ZONING_GEOJSON_URL = '/sites/zoning.geojson';
 
@@ -27,7 +33,7 @@ export const ZONING_GEOJSON_URL = '/sites/zoning.geojson';
  *   town?:string|null,
  *   municipality?:string|null,
  *   example:boolean,
- *   source?:'local'|'george',
+ *   source?:string,
  *   message:string,
  *   sourceNote?:string
  * }>}
@@ -60,13 +66,15 @@ export async function loadSiteZoning(latitude, longitude, { signal } = {}) {
     const props = hit.properties || {};
     const zoneCode = firstPropString(props, [
       'zoning_code', 'zone_code', 'zoneCode', 'ZONE_CODE', 'code', 'zoning', 'sdf_zone', 'ZONE',
+      'INT_ZONE_CODE',
     ]);
     const zoneName = firstPropString(props, [
       'zoning', 'zone_name', 'zoneName', 'ZONE_NAME', 'name', 'Name', 'description', 'zone',
+      'INT_ZONE_DESC',
     ]);
-    // Prefer dedicated name when both zoning (label) and zoning_code exist.
     const zoneNamePrefer = firstPropString(props, [
       'zone_name', 'zoneName', 'ZONE_NAME', 'name', 'Name', 'description', 'zone', 'zoning',
+      'INT_ZONE_DESC',
     ]);
     const landUse = firstPropString(props, ['land_use', 'landUse', 'LAND_USE']);
     const town = firstPropString(props, ['town', 'Town', 'TOWN']);
@@ -76,7 +84,9 @@ export async function loadSiteZoning(latitude, longitude, { signal } = {}) {
     const example = props.example === true || props.example === 'true';
     const resolvedName = zoneNamePrefer || zoneName;
     const resolvedCode = zoneCode && zoneCode !== resolvedName ? zoneCode : (
-      firstPropString(props, ['zoning_code', 'zone_code', 'zoneCode', 'ZONE_CODE', 'code', 'sdf_zone', 'ZONE'])
+      firstPropString(props, [
+        'zoning_code', 'zone_code', 'zoneCode', 'ZONE_CODE', 'code', 'sdf_zone', 'ZONE', 'INT_ZONE_CODE',
+      ])
     );
 
     if (!resolvedCode && !resolvedName) {
@@ -110,9 +120,11 @@ export async function loadSiteZoning(latitude, longitude, { signal } = {}) {
     };
   }
 
-  // Missing or empty local file → optional George bbox overlay.
+  // Missing or empty local file → location-aware municipal registry.
   if (collection.status === 'missing' || collection.status === 'empty') {
-    return loadGeorgeZoningBbox(latitude, longitude, { signal });
+    const provider = selectZoningProvider(latitude, longitude);
+    if (!provider) return noZoningDataResult();
+    return loadZoningProviderBbox(provider, latitude, longitude, { signal });
   }
 
   return {
@@ -123,3 +135,5 @@ export async function loadSiteZoning(latitude, longitude, { signal } = {}) {
     message: collection.message || 'Zoning GeoJSON unavailable.',
   };
 }
+
+export { NO_ZONING_DATA_MESSAGE, selectZoningProvider };

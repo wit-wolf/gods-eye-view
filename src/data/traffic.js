@@ -2,6 +2,7 @@ import * as Cesium from 'cesium';
 import { deriveFetchCenter, clampBoundsAroundCenter } from './trafficBounds.js';
 import { fetchFlowForBounds, getFlowSessionStats, resetFlowTileCache } from './flowTiles.js';
 import { matchFlowToRoads } from './flowMatch.js';
+import { flowSegmentsToRoadSpecs } from './tomtomRoads.js';
 import { flowBucket, flowSpeedScale, flowDensityMult } from './trafficFlowStyle.js';
 import {
   trafficStyleProfile,
@@ -24,20 +25,22 @@ export {
 } from './trafficOverlayClassification.js';
 
 /**
- * @file Street Traffic — TomTom live flow road overlay + animated dots along
- * OSM polylines when a key is configured.
+ * @file Street Traffic — TomTom live flow road overlay + animated dots.
  *
- * Road geometry: OSM Overpass API (free, no auth). Live mode fetches TomTom
- * relative-flow vector tiles via `/api/tomtom/flow/...`, matches them onto
- * roads, and paints congestion-colored GroundPolyline heat-lines (free/slow/
- * jam) draped on the active Map style surface, with optional PointPrimitive
- * dots on top. Camera-gated: only active below ~8 km altitude.
+ * Road geometry (live / keyed): TomTom relative-flow vector tiles via
+ * `/api/tomtom/flow/...` are decoded into road polylines with speed attributes
+ * and fed straight into the dot + heat-line pipeline (primary path). Overpass
+ * OSM ways remain the keyless / TomTom-down fallback; when both exist, flow can
+ * still be matched onto Overpass roads via `flowMatch.js`.
+ *
+ * Camera-gated: only active below ~8 km altitude.
  *
  * Two modes (decided once per session via `/api/tomtom/status`):
- *  - `sim` (keyless default): white dots at hardcoded per-road-class speeds —
- *    labeled Traffic (simulated); never claims live.
- *  - `live`: TomTom flow tiles (`flowTiles.js`) matched onto Overpass roads
- *    (`flowMatch.js`); heat-lines + colored dots by real congestion.
+ *  - `sim` (keyless default): Overpass roads + white dots at hardcoded
+ *    per-road-class speeds — labeled Traffic (simulated); never claims live.
+ *  - `live`: TomTom flow tiles as primary road geometry (`tomtomRoads.js`);
+ *    heat-lines + colored dots by real congestion. Overpass used only if
+ *    TomTom tiles fail.
  *
  * Heat-line classification follows Map style: TERRAIN on the shown globe
  * (Satellite / Streets / Hybrid), CESIUM_3D_TILE when Photorealistic 3D
@@ -574,6 +577,62 @@ async function fetchRoads(
  * @returns {Array<{coords:number[][], type:string, waypoints:Cesium.Cartesian3[], segmentDist:number[]}>}
  *   Parsed road objects ready for dot spawning.
  */
+/**
+ * Attach Cesium waypoints + segment distances to a road spec (`coords` +
+ * metadata). Shared by Overpass parse and TomTom flow→road conversion.
+ *
+ * @param {{coords:number[][], type:string, oneway?:number, flow?:object, source?:string}} spec
+ * @returns {object|null}
+ */
+function finalizeRoadSpec(spec) {
+  const coords = spec?.coords;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+
+  let baseHeight = 0;
+  const firstCoord = coords[0];
+  if (_viewer?.scene?.sampleHeightSupported && firstCoord) {
+    const carto = Cesium.Cartographic.fromDegrees(firstCoord[0], firstCoord[1]);
+    const sampled = _viewer.scene.sampleHeight(carto);
+    if (Number.isFinite(sampled)) baseHeight = sampled;
+  }
+
+  const waypoints = coords.map(([lng, lat]) => {
+    const h = baseHeight + DOT_HEIGHT_OFFSET;
+    return Cesium.Cartesian3.fromDegrees(lng, lat, h);
+  });
+
+  const segmentDist = [];
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    segmentDist.push(Cesium.Cartesian3.distance(waypoints[i], waypoints[i + 1]));
+  }
+
+  const road = {
+    coords,
+    type: spec.type || 'unclassified',
+    oneway: Number.isFinite(spec.oneway) ? spec.oneway : 0,
+    waypoints,
+    segmentDist,
+  };
+  if (spec.flow) road.flow = spec.flow;
+  if (spec.source) road.source = spec.source;
+  return road;
+}
+
+/**
+ * Build renderable roads from TomTom flow segments (primary live path).
+ * @param {Array} segments
+ * @returns {Array}
+ */
+function parseRoadsFromFlowSegments(segments) {
+  const specs = flowSegmentsToRoadSpecs(segments);
+  const roads = [];
+  for (const spec of specs) {
+    const road = finalizeRoadSpec(spec);
+    if (road) roads.push(road);
+  }
+  return roads;
+}
+
 function parseRoads(overpassData) {
   if (!overpassData || !overpassData.elements) return [];
 
@@ -1364,6 +1423,18 @@ function syncTrafficDisplayName() {
  * @param {number} generation - `_loadGeneration` at call time.
  * @returns {Promise<void>}
  */
+/**
+ * Roads built from TomTom flow tiles already carry `flow` — mark full coverage
+ * without a second tile fetch / match pass.
+ * @param {Array} roads
+ * @returns {boolean}
+ */
+function roadsAlreadyHaveTomTomFlow(roads) {
+  return Array.isArray(roads)
+    && roads.length > 0
+    && roads.every((r) => r?.source === 'tomtom' && r.flow);
+}
+
 async function applyFlowToRoads(roads, clamped, generation) {
   // Claim the work synchronously, before the first await, so `stats.loading`
   // covers this request from the same tick the caller started it — the
@@ -1375,6 +1446,14 @@ async function applyFlowToRoads(roads, clamped, generation) {
     if (!_liveMode || !_enabled) return;
     if (generation !== _loadGeneration) return;
     if (!Array.isArray(roads) || roads.length === 0) return;
+
+    // Primary live path: geometry came from TomTom tiles with flow attached.
+    if (roadsAlreadyHaveTomTomFlow(roads)) {
+      _flowCoveragePct = 100;
+      _flowError = null;
+      return;
+    }
+
     try {
       // Cached paths reach here without a live controller; the fetch paths
       // reuse theirs so one cancel covers both roads and flow.
@@ -2151,17 +2230,8 @@ async function loadRoadsForBounds(bounds, altitude, trace = null) {
   // Cache key: fixed-precision bounding-box string for deterministic lookups
   const cacheKey = `${clamped.south.toFixed(4)},${clamped.west.toFixed(4)},${clamped.north.toFixed(4)},${clamped.east.toFixed(4)}`;
 
-  // Live mode: warm the flow-tile cache CONCURRENTLY with the Overpass road
-  // fetch — sequential fetches doubled first-paint latency (field-test
-  // round 1). Failures are irrelevant; applyFlowToRoads settles the truth.
-  ensureFlowStatus().then(() => {
-    if (_liveMode && _enabled && generation === _loadGeneration) {
-      fetchFlowForBounds(clamped, {}).catch(() => { /* warm-up only */ });
-    }
-  });
-
   _fetching = true;
-  // Only COMMIT these on success. Committing up-front means a failed Overpass
+  // Only COMMIT these on success. Committing up-front means a failed road
   // fetch (rate-limited / feed down) still trips the overlap gate in
   // onCameraChanged, so a stationary user never retries (H3/H5). Stage the
   // prospective values and roll back if nothing rendered.
@@ -2172,6 +2242,9 @@ async function loadRoadsForBounds(bounds, altitude, trace = null) {
   let renderedSomething = false;
 
   try {
+    await ensureFlowStatus();
+    if (generation !== _loadGeneration || !_enabled) return;
+
     let cache = _tileCache.get(cacheKey);
     if (!cache) {
       // LRU eviction: drop the oldest entry when cache exceeds the cap
@@ -2179,15 +2252,54 @@ async function loadRoadsForBounds(bounds, altitude, trace = null) {
         const oldest = _tileCache.keys().next().value;
         _tileCache.delete(oldest);
       }
-      cache = { major: null, full: null };
+      cache = { major: null, full: null, tomtom: null, tomtomAt: 0 };
       _tileCache.set(cacheKey, cache);
+    }
+
+    // ── Live primary: TomTom flow tiles → road polylines (no Overpass) ──
+    // Respects the existing /api/tomtom proxy budget + decode cache. When
+    // Overpass is down, dots still move. Falls through to Overpass on empty
+    // / failed tile sets.
+    if (_liveMode) {
+      const TOMTOM_ROAD_CACHE_MS = 120_000;
+      if (cache.tomtom?.length && Date.now() - (cache.tomtomAt || 0) < TOMTOM_ROAD_CACHE_MS) {
+        renderedSomething = await applyFlowThenRender(
+          cache.tomtom, clamped, generation, altitude, 'Cache TomTom', trace,
+        );
+        if (renderedSomething) return;
+      }
+
+      _activeFetchAbort = new AbortController();
+      console.log(`[Data:Traffic] TomTom flow roads [${cacheKey}]`);
+      try {
+        const segments = await fetchFlowForBounds(clamped, {
+          signal: _activeFetchAbort.signal,
+        });
+        if (generation !== _loadGeneration) return;
+        const tomtomRoads = parseRoadsFromFlowSegments(segments);
+        if (tomtomRoads.length > 0) {
+          cache.tomtom = tomtomRoads;
+          cache.tomtomAt = Date.now();
+          // Also stash as full so altitude re-renders reuse without refetch.
+          cache.full = tomtomRoads;
+          renderedSomething = await applyFlowThenRender(
+            tomtomRoads, clamped, generation, altitude, 'Loaded TomTom', trace,
+          );
+          if (renderedSomething) return;
+        }
+        console.warn('[Data:Traffic] TomTom tiles returned no road geometry — falling back to Overpass');
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        console.warn('[Data:Traffic] TomTom road fetch failed — falling back to Overpass:', e?.message || e);
+        _flowError = deriveTrafficFlowError(e);
+      }
     }
 
     // Fast path: full road set already cached — render and return.
     // Flow is (re)applied even on cache hits: roads cache for the session,
     // but congestion data has a 120s shelf life. The race renders within
     // FLOW_RENDER_RACE_MS either way; late flow recolors in place.
-    if (cache.full) {
+    if (cache.full && cache.full[0]?.source !== 'tomtom') {
       renderedSomething = await applyFlowThenRender(
         cache.full, clamped, generation, altitude, 'Cache full', trace
       );

@@ -364,7 +364,7 @@ function paintZoning(mount, zoning) {
       ${zoning.municipality ? `<div><dt>Municipality</dt><dd>${escapeHtml(zoning.municipality)}</dd></div>` : ''}
     </dl>
     <p class="site-card-muted">${escapeHtml(zoning.message || 'Matched local zoning GeoJSON.')}</p>
-    ${zoning.sourceNote && zoning.source === 'george'
+    ${zoning.sourceNote && zoning.source && zoning.source !== 'local' && zoning.source !== 'none'
       ? `<p class="site-card-muted">${escapeHtml(zoning.sourceNote)}</p>`
       : ''}
   `;
@@ -554,7 +554,7 @@ export function openSiteCard({
 
     <section class="site-card-section" data-site-zoning>
       <div class="site-card-section-title">Zoning / SDF</div>
-      <p class="site-card-muted" data-site-zoning-body>Checking local zoning GeoJSON or George bbox…</p>
+      <p class="site-card-muted" data-site-zoning-body>Checking local zoning GeoJSON or municipal coverage…</p>
     </section>
 
     <section class="site-card-section" data-site-demographics>

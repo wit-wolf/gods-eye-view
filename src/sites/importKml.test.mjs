@@ -124,6 +124,39 @@ test('parseGzippedGeoJSON loads bundled november demo subset', async () => {
   assert.ok(processed.features[0].properties._uid);
 });
 
+test('parseGzippedGeoJSON accepts already-inflated JSON (no gzip magic)', async () => {
+  const fc = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: { name: 'Inflated' },
+      geometry: { type: 'Point', coordinates: [18.4, -33.9] },
+    }],
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(fc));
+  assert.notEqual(bytes[0], 0x1f);
+  const geojson = await parseGzippedGeoJSON(bytes.buffer);
+  assert.equal(geojson.type, 'FeatureCollection');
+  assert.equal(geojson.features[0].properties.name, 'Inflated');
+});
+
+test('parseGzippedGeoJSON still decompresses real gzip bytes', async () => {
+  const { gzipSync } = await import('node:zlib');
+  const fc = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: { name: 'Gzipped' },
+      geometry: { type: 'Point', coordinates: [22.46, -33.96] },
+    }],
+  };
+  const gz = gzipSync(Buffer.from(JSON.stringify(fc)));
+  assert.equal(gz[0], 0x1f);
+  assert.equal(gz[1], 0x8b);
+  const geojson = await parseGzippedGeoJSON(gz.buffer.slice(gz.byteOffset, gz.byteOffset + gz.byteLength));
+  assert.equal(geojson.features[0].properties.name, 'Gzipped');
+});
+
 test('calculateScore weights dimensions onto 0–100', () => {
   assert.equal(calculateScore(getDefaultScoreInputs(), DEFAULT_SCORING_WEIGHTS), 50);
   assert.equal(calculateScore({
