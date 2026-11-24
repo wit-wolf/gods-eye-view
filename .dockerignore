@@ -1,0 +1,35 @@
+# Secrets & local env — never bake into the image
+.env
+.env.*
+!.env.example
+
+# Dependencies & build output (rebuilt in the image)
+node_modules
+dist
+.gev-cache
+.gev-logs
+qa-shots
+
+# VCS / IDE / OS
+.git
+.github
+.cursor
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Tests, QA harnesses, docs not needed at runtime
+scripts
+tools
+**/*.test.mjs
+**/fixtures
+docs
+*.md
+!LICENSE
+
+# Misc
+npm-debug.log*
+coverage
+.tmp
+temp

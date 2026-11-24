@@ -1,6 +1,5 @@
 import { createLocalGeoJsonLayer } from './localGeojson.js';
 import { createFirmsHeatmapLayer } from './firmsHeatmap.js';
-import submarineCablesLayer from './telegeographySubmarineCables.js';
 
 // Use Vite's ?url import to properly resolve these assets in dev and build
 import datacentersUrl from './local_data/datacenters/datacenters.geojsonl?url';
@@ -9,6 +8,10 @@ import damsUrl from './local_data/dams/dams.geojsonl?url';
 /**
  * Registry of local GeoJSON datasets.
  * These are lazily loaded natively into Cesium when enabled.
+ *
+ * TeleGeography submarine cables (CC BY-NC-SA) were removed from the bundle;
+ * dams/datacenters remain (ODbL) even though the Volo product profile cuts them
+ * from the HUD — they stay available for re-enable / allocation probes.
  */
 const datacenters = createLocalGeoJsonLayer({
   id: 'local-datacenters',
@@ -47,6 +50,5 @@ const fires = createFirmsHeatmapLayer({
 export default [
   datacenters,
   dams,
-  submarineCablesLayer,
   fires,
 ];

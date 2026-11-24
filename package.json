@@ -39,24 +39,27 @@
     "preview": "vite preview",
     "test": "node scripts/run-unit-tests.mjs",
     "test:track": "node scripts/track-regression.mjs",
-    "qa:map-source-tray": "node scripts/qa-map-source-tray.mjs"
+    "qa:map-source-tray": "node scripts/qa-map-source-tray.mjs",
+    "start": "node server/index.js"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",
     "@tmcw/togeojson": "^7.1.2",
     "@xmldom/xmldom": "^0.9.12",
     "cesium": "^1.124.0",
+    "compression": "^1.8.2",
     "egm96-universal": "^1.1.1",
+    "express": "^5.3.0",
     "jszip": "^3.10.1",
     "mgrs": "^2.1.0",
     "pbf": "^5.1.2",
-    "satellite.js": "^6.0.2"
+    "satellite.js": "^6.0.2",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "puppeteer": "^24.37.5",
     "sharp": "^0.34.5",
     "vite": "^6.0.0",
-    "vite-plugin-cesium": "^1.2.23",
-    "ws": "^8.21.0"
+    "vite-plugin-cesium": "^1.2.23"
   }
 }
