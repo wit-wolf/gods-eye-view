@@ -5,18 +5,12 @@ import {
   setOverlaySourceVisible,
 } from '../overlays/worldOverlay.js';
 
-// TeleGeography submarine-cable data is bundled for an out-of-the-box
-// experience. IMPORTANT: it is CC BY-NC-SA 3.0 (NonCommercial + ShareAlike),
-// NOT covered by this project's MIT license — see DATA_SOURCES.md. Commercial
-// users must remove this dataset or obtain a license from TeleGeography.
-const cableUrl = new URL(
-  './local_data/telegeography_submarine_cables/cable-geo.json',
-  import.meta.url,
-).href;
-const landingPointUrl = new URL(
-  './local_data/telegeography_submarine_cables/landing-point-geo.json',
-  import.meta.url,
-).href;
+// TeleGeography CC BY-NC-SA 3.0 GeoJSON was removed for commercial
+// redistributability (see DATA_SOURCES.md). Overlay helpers + allocation
+// probes remain; the layer is not registered in localLayers. URL markers
+// keep unit-test fetch fixtures matching `landing-point` / `cable-geo`.
+const cableUrl = 'telegeography-removed/cable-geo.json';
+const landingPointUrl = 'telegeography-removed/landing-point-geo.json';
 
 const BASE_CABLE_COLOR = '#39d5ff';
 const BASE_LANDING_COLOR = '#8fffd2';

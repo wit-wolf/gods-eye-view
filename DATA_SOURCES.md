@@ -4,8 +4,8 @@ God's Eye View's **code** is [MIT](LICENSE)-licensed. **The MIT grant covers the
 
 How to read this:
 
-- **The non-permissive datasets are carved out, not omitted.** Some bundled data (e.g. TeleGeography, CC BY-NC-SA) isn't MIT-compatible. Rather than hide it, we **bundle it with a clear license carve-out** so the app works out of the box — but it stays under the provider's terms.
-- **If your use doesn't fit a dataset's license, remove that dataset.** Most importantly: TeleGeography is **NonCommercial** — commercial users must delete it (or license it from TeleGeography). It's one self-contained folder.
+- **Non-permissive datasets are not bundled for commercial redistributability.** TeleGeography submarine-cable GeoJSON (CC BY-NC-SA 3.0) was removed from `src/data/local_data/`; overlay helper code remains for allocation probes but the layer is not registered.
+- **If your use doesn't fit a dataset's license, remove that dataset.** ODbL extracts (dams/datacenters) remain with required attribution.
 - **Attribution is shown in-app** and listed here. Keep it intact. The required Google/Cesium credit renders on the on-globe credit line (bottom-left, `#cesium-credits`), and every per-layer credit below is registered into the expandable **"Data attribution"** lightbox on that line (`src/data/dataCredits.js` → `viewer.creditDisplay.addStaticCredit`). Both stay visible in clean-view and recording modes.
 - **Bundled model attribution lives beside the model files.** [`public/models/README.md`](public/models/README.md) records each shipped model's creator, source, license, and modification status.
 - **README media provenance lives beside the media.** [`docs/media/README.md`](docs/media/README.md) records the creator and likeness permissions for the 17 capture GIFs, plus the public source, publication permission, and reuse boundary for the two README PNGs. Third-party content visible within this media remains subject to its provider or owner's terms.
@@ -77,17 +77,12 @@ Static datasets shipped in the repo for an out-of-the-box experience. **None are
 |---------|--------|---------|-----------------|-------------|
 | **Datacenters** (~4.3K) | `datacenters/` | **ODbL 1.0** (OpenStreetMap extract) | ✅ (attribution + share-alike on data) | "© OpenStreetMap contributors" |
 | **Dams** (704) | `dams/` | **ODbL 1.0** (OpenInfraMap / OSM extract) | ✅ (attribution + share-alike on data) | "© OpenStreetMap contributors" (+ Open Infrastructure Map) |
-| **TeleGeography Submarine Cable Map** (712 cables + 1,917 landing points) | `telegeography_submarine_cables/` | **CC BY-NC-SA 3.0** | ❌ **NonCommercial — remove for commercial use** | "© TeleGeography — submarinecablemap.com" |
 | **Natural Earth physical regions** (1,046 land + 292 marine named polygons) | `natural_earth/` | **Public domain** | ✅ (no restrictions) | "Made with Natural Earth" (courtesy credit — not legally required) |
 | **DataSF Analysis Neighborhoods** (41 SF neighborhood polygons) | `neighborhoods/` | **PDDL 1.0** (public domain) | ✅ (no restrictions) | "City & County of San Francisco — DataSF" (courtesy — not legally required) |
 
-### ⚠️ TeleGeography is bundled but NonCommercial
+### TeleGeography (removed)
 
-The submarine-cable GeoJSON is **CC BY-NC-SA 3.0** (Attribution-**NonCommercial**-**ShareAlike**). It is bundled so the cables layer works out of the box, but it is **not covered by this project's MIT license**. CC BY-NC-SA permits redistribution with attribution and share-alike — which is exactly how it ships here — but the **NonCommercial** clause means:
-
-> If you use God's Eye View commercially, delete `src/data/local_data/telegeography_submarine_cables/` (or obtain a commercial license from TeleGeography). It is one self-contained folder; the rest of the app runs without it.
-
-The richer structured dataset is licensed separately/commercially by TeleGeography.
+The submarine-cable GeoJSON (**CC BY-NC-SA 3.0**) previously under `telegeography_submarine_cables/` was **removed** so container/commercial distributions do not ship NonCommercial data. Overlay helper symbols remain in `src/data/telegeographySubmarineCables.js` for allocation probes; the layer is not registered in `localLayers`. Obtain a commercial license from TeleGeography if you need that dataset again.
 
 ### ODbL share-alike (datacenters, dams)
 
